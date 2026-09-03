@@ -10,7 +10,6 @@
     "+skills/agently-mail/SKILL.md"
   ],
   "packages": [
-    "npm:@georgedong32/permission-modes",
     "npm:pi-one-ui",
     "npm:@agnishc/edb-agent-steer",
     "git:github.com/pasky/pi-ssh-image-clipboard@55db30a67dc039aec243c0737f5fec179add057c",
@@ -18,8 +17,6 @@
     "npm:pi-btw",
     "npm:@juicesharp/rpiv-todo",
     "npm:@ogulcancelik/pi-ssh-tools",
-    "/home/kerolt/.pi/agent/local-packages/zentui-permission-modes-compat",
-    "npm:pi-antigravity",
     "npm:pi-web-access",
     "npm:@ff-labs/pi-fff",
     "npm:pi-config-sync"
