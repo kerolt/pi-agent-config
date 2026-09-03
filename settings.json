@@ -1,0 +1,39 @@
+{
+  "defaultProvider": "openai-codex",
+  "defaultModel": "gpt-5.6-sol",
+  "theme": "cc-dark",
+  "outputPad": 1,
+  "markdown": {
+    "codeBlockIndent": ""
+  },
+  "skills": [
+    "+skills/agently-mail/SKILL.md"
+  ],
+  "packages": [
+    "npm:@georgedong32/permission-modes",
+    "npm:pi-one-ui",
+    "npm:@agnishc/edb-agent-steer",
+    "git:github.com/pasky/pi-ssh-image-clipboard@55db30a67dc039aec243c0737f5fec179add057c",
+    "npm:pi-subagents",
+    "npm:pi-btw",
+    "npm:@juicesharp/rpiv-todo",
+    "npm:@ogulcancelik/pi-ssh-tools",
+    "/home/kerolt/.pi/agent/local-packages/zentui-permission-modes-compat",
+    "npm:pi-antigravity",
+    "npm:pi-web-access",
+    "npm:@ff-labs/pi-fff",
+    "npm:pi-config-sync"
+  ],
+  "quietStartup": true,
+  "defaultThinkingLevel": "high",
+  "hideThinkingBlock": true,
+  "tuiMode": "regular",
+  "fullscreenScrollbar": "hidden",
+  "steeringMode": "one-at-a-time",
+  "compaction": {
+    "enabled": true
+  },
+  "retry": {
+    "enabled": true
+  }
+}
