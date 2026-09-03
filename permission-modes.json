@@ -1,0 +1,73 @@
+{
+  "classifier": {
+    "enabled": true,
+    "model": "opencode-go/ox-alpha-free",
+    "timeoutMs": 30000,
+    "failClosed": false,
+    "stage": "single",
+    "includeAgentsMd": true
+  },
+  "autoMode": {
+    "allow": [
+      "Always auto-approve the todo task-management tool without asking for confirmation.",
+      "Auto-approve every shell command and pipeline unless it deletes, removes, uninstalls, prunes, destroys, drops, or irreversibly erases data.",
+      "Auto-approve read-only inspection, builds, tests, formatting, network requests, package installation, and local file creation or modification."
+    ],
+    "soft_deny": [
+      "Block any operation that deletes or erases data, including indirect deletion through find, xargs, interpreters, scripts, package managers, Git, containers, Kubernetes, databases, or infrastructure tools."
+    ],
+    "environment": [
+      "The user wants uninterrupted auto mode; non-deletion operations should not request confirmation."
+    ]
+  },
+  "permissions": {
+    "deny": [
+      "Bash(rm:*)",
+      "Bash(/bin/rm:*)",
+      "Bash(/usr/bin/rm:*)",
+      "Bash(rmdir:*)",
+      "Bash(unlink:*)",
+      "Bash(shred:*)",
+      "Bash(truncate:*)",
+      "Bash(dd:*)",
+      "Bash(command rm:*)",
+      "Bash(env rm:*)",
+      "Bash(sudo rm:*)",
+      "Bash(sudo * rm *)",
+      "Bash(busybox rm:*)",
+      "Bash(xargs * rm *)",
+      "Bash(find * -delete*)",
+      "Bash(find * -exec rm *)",
+      "Bash(find * -execdir rm *)",
+      "Bash(git clean:*)",
+      "Bash(git rm:*)",
+      "Bash(rsync * --delete*)",
+      "Bash(kubectl delete:*)",
+      "Bash(helm uninstall:*)",
+      "Bash(terraform destroy:*)",
+      "Bash(docker rm:*)",
+      "Bash(docker rmi:*)",
+      "Bash(docker * prune*)",
+      "Bash(podman rm:*)",
+      "Bash(podman rmi:*)",
+      "Bash(podman * prune*)"
+    ],
+    "ask": [
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(~/.gnupg/**)",
+      "Read(~/.kube/config)",
+      "Read(~/.docker/config.json)",
+      "Read(~/.git-credentials)",
+      "Read(~/.netrc)",
+      "Read(~/.npmrc)",
+      "Read(~/.config/gh/hosts.yml)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/.git/**)"
+    ],
+    "allow": [
+      "Read"
+    ]
+  }
+}

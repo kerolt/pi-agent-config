@@ -1,4 +1,6 @@
 
+
+
 # >>> pi-config-sync managed — do not edit inside this block
 *
 !.gitignore
@@ -31,6 +33,18 @@
 !skills
 !skills/
 !skills/**
+!keybindings.json
+!keybindings.json/
+!keybindings.json/**
+!permission-modes.json
+!permission-modes.json/
+!permission-modes.json/**
+!models.json
+!models.json/
+!models.json/**
+!pi-one-ui.json
+!pi-one-ui.json/
+!pi-one-ui.json/**
 # hard denylist — re-ignored even inside allowed dirs
 auth*
 *token*

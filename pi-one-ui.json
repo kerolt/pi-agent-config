@@ -1,0 +1,184 @@
+{
+  "icons": {
+    "mode": "nerd"
+  },
+  "components": {
+    "editor": {
+      "enabled": true,
+      "style": "minimalist",
+      "colorSource": "theme",
+      "borderColorMode": "adaptive",
+      "modelLabel": "name",
+      "viewportIndicators": false,
+      "styles": {
+        "opencode": {
+          "metadataFormat": "$model  $provider(  $thinking)",
+          "completionMenu": "palette"
+        },
+        "opencode-copy-friendly": {
+          "metadataFormat": "$model  $provider(  $thinking)",
+          "completionMenu": "palette"
+        },
+        "minimalist": {
+          "pathDisplay": "full",
+          "contextFormat": "percent",
+          "contextGauge": false,
+          "showSessionName": false,
+          "showTimer": false,
+          "showCost": false,
+          "showGit": false,
+          "contextThresholds": {
+            "warning": 70,
+            "error": 90
+          }
+        },
+        "accent-rail": {
+          "rail": "▎",
+          "asciiRail": "|",
+          "transparent": false
+        }
+      }
+    },
+    "userMessages": {
+      "enabled": false,
+      "style": "framed-copy-friendly",
+      "colorSource": "terminal",
+      "styles": {
+        "framed": {},
+        "framed-copy-friendly": {},
+        "compact": {},
+        "labeled": {}
+      }
+    },
+    "workingLine": {
+      "enabled": true,
+      "turnSummary": true,
+      "spinner": "braille",
+      "spinnerIntervalMs": 100,
+      "animateSpinnerColor": false,
+      "textIntervalMs": 60,
+      "textAnimation": "disabled",
+      "colorSource": "theme",
+      "messages": {
+        "custom": false,
+        "values": [
+          "Sautéing…",
+          "Cooking…",
+          "Ionizing…",
+          "Zigzagging…",
+          "Razzle-dazzling…",
+          "Photosynthesizing…",
+          "Nucleating…",
+          "Brewing…",
+          "Combobulating…",
+          "Boogieing…",
+          "Befuddling…",
+          "Alchemizing…",
+          "Conjuring…",
+          "Baking…",
+          "Simmering…",
+          "Blanching…"
+        ]
+      },
+      "segments": {
+        "tool": true,
+        "elapsed": true,
+        "thought": true,
+        "tokens": true
+      }
+    },
+    "selectorBorders": {
+      "enabled": true,
+      "style": "zentui",
+      "colorSource": "terminal"
+    },
+    "footer": {
+      "style": "starship",
+      "colorSource": "theme",
+      "modelLabel": "name",
+      "styles": {
+        "starship": {
+          "format": "",
+          "responsive": false,
+          "compactFormat": "$cwd$wrap(in $session_name)$wrap(on $git_branch) $git_status$wrap$context$wrap_sep$tokens",
+          "compactMaxLines": 1,
+          "separator": "pipe",
+          "contextStyle": "text+gauge",
+          "contextThresholds": {
+            "warning": 70,
+            "error": 90
+          },
+          "pathDisplay": {
+            "mode": "full",
+            "depth": 0
+          },
+          "segments": {
+            "cwd": false,
+            "sessionName": true,
+            "gitBranch": false,
+            "gitStatus": false,
+            "gitCounts": false,
+            "gitCommit": false,
+            "gitMetrics": false,
+            "runtime": false,
+            "modelInfo": false,
+            "context": true,
+            "tokens": true,
+            "cost": false,
+            "sessionDuration": false,
+            "username": false,
+            "time": false,
+            "os": false,
+            "packageVersion": false
+          },
+          "gitBranch": {
+            "maxLength": "full"
+          },
+          "gitCommit": {
+            "hashLength": 7,
+            "onlyDetached": false,
+            "showTag": false
+          },
+          "gitMetrics": {
+            "onlyNonzero": false,
+            "ignoreSubmodules": false
+          },
+          "extensionStatuses": {
+            "defaultPlacement": "left",
+            "placements": {
+              "permission-mode": "left"
+            },
+            "colorModes": {
+              "permission-mode": "original"
+            }
+          }
+        }
+      }
+    }
+  },
+  "version": 1,
+  "renderer": {
+    "mode": "on",
+    "excludeRenderers": [],
+    "diffViewMode": "auto",
+    "diffIndicatorMode": "bars",
+    "diffSplitMinWidth": 120,
+    "editDiffCollapsedLines": 24,
+    "writeDiffCollapsedLines": 0,
+    "diffWordWrap": true,
+    "expandedPreviewMaxLines": 40,
+    "toolInputNameLength": 100,
+    "useSummaryTitlesAsThinkingTitle": true,
+    "previewLines": 5,
+    "animationIntervalMs": 90,
+    "dimThinkingText": false,
+    "showStartupHeader": true,
+    "scrollStepLines": 3,
+    "enableSessionReference": true,
+    "enableSubagentAutocomplete": true,
+    "enableContextCommand": true,
+    "enableAgentSummary": true,
+    "enableWorkingMessage": false,
+    "enableAliases": true
+  }
+}
