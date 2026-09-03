@@ -1,0 +1,44 @@
+
+# >>> pi-config-sync managed — do not edit inside this block
+*
+!.gitignore
+!.gitignore/
+!.gitignore/**
+!.gitattributes
+!.gitattributes/
+!.gitattributes/**
+!settings.json
+!settings.json/
+!settings.json/**
+!AGENTS.md
+!AGENTS.md/
+!AGENTS.md/**
+!git-sync.jsonc
+!git-sync.jsonc/
+!git-sync.jsonc/**
+!extensions
+!extensions/
+!extensions/**
+!chains
+!chains/
+!chains/**
+!prompts
+!prompts/
+!prompts/**
+!themes
+!themes/
+!themes/**
+!skills
+!skills/
+!skills/**
+# hard denylist — re-ignored even inside allowed dirs
+auth*
+*token*
+*secret*
+*credential*
+*.env
+*.env.*
+*.local.json
+**/node_modules/
+.DS_Store
+# <<< pi-config-sync managed
