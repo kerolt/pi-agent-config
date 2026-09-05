@@ -7,7 +7,7 @@
       "enabled": true,
       "style": "on",
       "colorSource": "terminal",
-      "borderColorMode": "adaptive",
+      "borderColorMode": "static",
       "modelLabel": "name",
       "viewportIndicators": false,
       "styles": {
@@ -40,7 +40,7 @@
       }
     },
     "userMessages": {
-      "enabled": true,
+      "enabled": false,
       "style": "framed-copy-friendly",
       "colorSource": "terminal",
       "styles": {
