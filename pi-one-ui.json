@@ -4,7 +4,7 @@
   },
   "components": {
     "editor": {
-      "enabled": false,
+      "enabled": true,
       "style": "minimalist",
       "colorSource": "terminal",
       "borderColorMode": "adaptive",
