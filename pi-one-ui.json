@@ -5,8 +5,8 @@
   "components": {
     "editor": {
       "enabled": true,
-      "style": "minimalist",
-      "colorSource": "terminal",
+      "style": "on",
+      "colorSource": "theme",
       "borderColorMode": "adaptive",
       "modelLabel": "name",
       "viewportIndicators": false,
@@ -40,7 +40,7 @@
       }
     },
     "userMessages": {
-      "enabled": false,
+      "enabled": true,
       "style": "framed-copy-friendly",
       "colorSource": "terminal",
       "styles": {
