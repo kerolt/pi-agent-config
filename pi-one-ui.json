@@ -6,7 +6,7 @@
     "editor": {
       "enabled": true,
       "style": "minimalist",
-      "colorSource": "theme",
+      "colorSource": "terminal",
       "borderColorMode": "adaptive",
       "modelLabel": "name",
       "viewportIndicators": false,
