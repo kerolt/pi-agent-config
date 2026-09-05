@@ -27,7 +27,7 @@
 		"toolSuccessBg": "#1e1e2e",
 		"toolErrorBg": "#2a1b22",
 		"customMessageBg": "#211c30",
-		"hh": "yellow"
+		"hh": "#c084fc"
 	},
 	"colors": {
 		"accent": "accent",
@@ -81,7 +81,7 @@
 		"thinkingMedium": "accent",
 		"thinkingHigh": "accentBright",
 		"thinkingXhigh": "#4db9cd",
-		"thinkingMax": "hh",
+		"thinkingMax": "#f5f5f5",
 		"bashMode": "green",
 		"cwd": "blue",
 		"editorModel": "blue",
