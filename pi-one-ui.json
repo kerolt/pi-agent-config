@@ -180,5 +180,8 @@
     "enableAgentSummary": true,
     "enableWorkingMessage": false,
     "enableAliases": true
+  },
+  "colors": {
+    "editorBorder": "red"
   }
 }
