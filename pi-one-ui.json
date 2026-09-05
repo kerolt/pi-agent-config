@@ -1,4 +1,5 @@
 {
+  "version": 1,
   "icons": {
     "mode": "nerd"
   },
@@ -7,7 +8,7 @@
       "enabled": true,
       "style": "on",
       "colorSource": "terminal",
-      "borderColorMode": "static",
+      "borderColorMode": "adaptive",
       "modelLabel": "name",
       "viewportIndicators": false,
       "styles": {
@@ -156,7 +157,6 @@
       }
     }
   },
-  "version": 1,
   "renderer": {
     "mode": "on",
     "excludeRenderers": [],
@@ -182,6 +182,6 @@
     "enableAliases": true
   },
   "colors": {
-    "editorBorder": "red"
+    "editorThinkingMax": "purple"
   }
 }
