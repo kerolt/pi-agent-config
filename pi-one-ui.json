@@ -178,8 +178,7 @@
     "enableSubagentAutocomplete": true,
     "enableContextCommand": true,
     "enableAgentSummary": true,
-    "enableWorkingMessage": false,
-    "enableAliases": true
+    "enableAliases": false
   },
   "colors": {
     "editorThinkingMax": "purple"
