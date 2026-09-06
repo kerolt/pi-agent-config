@@ -1,6 +1,6 @@
 {
-  "defaultProvider": "openai-codex",
-  "defaultModel": "gpt-5.6-sol",
+  "defaultProvider": "kimi-coding",
+  "defaultModel": "k3",
   "theme": "cc-dark",
   "outputPad": 1,
   "markdown": {
