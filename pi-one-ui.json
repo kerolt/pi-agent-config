@@ -5,51 +5,23 @@
   },
   "components": {
     "editor": {
-      "enabled": true,
       "style": "on",
-      "colorSource": "terminal",
       "borderColorMode": "adaptive",
       "modelLabel": "name",
       "viewportIndicators": false,
       "styles": {
-        "opencode": {
-          "metadataFormat": "$model  $provider(  $thinking)",
-          "completionMenu": "palette"
-        },
-        "opencode-copy-friendly": {
-          "metadataFormat": "$model  $provider(  $thinking)",
-          "completionMenu": "palette"
-        },
         "minimalist": {
           "pathDisplay": "full",
-          "contextFormat": "percent",
-          "contextGauge": false,
           "showSessionName": false,
           "showTimer": false,
           "showCost": false,
-          "showGit": false,
-          "contextThresholds": {
-            "warning": 70,
-            "error": 90
-          }
-        },
-        "accent-rail": {
-          "rail": "▎",
-          "asciiRail": "|",
-          "transparent": false
+          "showGit": false
         }
       }
     },
     "userMessages": {
       "enabled": false,
-      "style": "framed-copy-friendly",
-      "colorSource": "terminal",
-      "styles": {
-        "framed": {},
-        "framed-copy-friendly": {},
-        "compact": {},
-        "labeled": {}
-      }
+      "style": "framed-copy-friendly"
     },
     "workingLine": {
       "enabled": true,
@@ -59,27 +31,8 @@
       "animateSpinnerColor": false,
       "textIntervalMs": 60,
       "textAnimation": "disabled",
-      "colorSource": "theme",
       "messages": {
-        "custom": false,
-        "values": [
-          "Sautéing…",
-          "Cooking…",
-          "Ionizing…",
-          "Zigzagging…",
-          "Razzle-dazzling…",
-          "Photosynthesizing…",
-          "Nucleating…",
-          "Brewing…",
-          "Combobulating…",
-          "Boogieing…",
-          "Befuddling…",
-          "Alchemizing…",
-          "Conjuring…",
-          "Baking…",
-          "Simmering…",
-          "Blanching…"
-        ]
+        "custom": false
       },
       "segments": {
         "tool": true,
@@ -90,12 +43,10 @@
     },
     "selectorBorders": {
       "enabled": true,
-      "style": "zentui",
-      "colorSource": "terminal"
+      "style": "zentui"
     },
     "footer": {
       "style": "starship",
-      "colorSource": "theme",
       "modelLabel": "name",
       "styles": {
         "starship": {
