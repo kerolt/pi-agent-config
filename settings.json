@@ -1,6 +1,6 @@
 {
-  "defaultProvider": "kimi-coding",
-  "defaultModel": "k3",
+  "defaultProvider": "openai-codex",
+  "defaultModel": "gpt-6-astra",
   "theme": "cc-dark",
   "outputPad": 1,
   "markdown": {
