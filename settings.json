@@ -19,7 +19,8 @@
     "npm:@ogulcancelik/pi-ssh-tools",
     "npm:pi-web-access",
     "npm:@ff-labs/pi-fff",
-    "npm:pi-config-sync"
+    "npm:pi-config-sync",
+    "git:github.com/Imbad0202/academic-research-skills"
   ],
   "quietStartup": true,
   "defaultThinkingLevel": "high",
