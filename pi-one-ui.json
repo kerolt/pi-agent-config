@@ -5,7 +5,7 @@
   },
   "components": {
     "editor": {
-      "style": "off",
+      "style": "on",
       "borderColorMode": "adaptive",
       "modelLabel": "name",
       "viewportIndicators": false,
