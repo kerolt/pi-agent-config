@@ -12,6 +12,7 @@
       "styles": {
         "minimalist": {
           "pathDisplay": "full",
+          "showCwd": false,
           "showSessionName": false,
           "showTimer": false,
           "showCost": false,
