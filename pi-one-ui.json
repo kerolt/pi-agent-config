@@ -5,7 +5,7 @@
   },
   "components": {
     "editor": {
-      "style": "on",
+      "style": "off",
       "borderColorMode": "adaptive",
       "modelLabel": "name",
       "viewportIndicators": false,
@@ -21,7 +21,13 @@
     },
     "userMessages": {
       "enabled": false,
-      "style": "framed-copy-friendly"
+      "style": "framed-copy-friendly",
+      "styles": {
+        "framed": {},
+        "framed-copy-friendly": {},
+        "compact": {},
+        "labeled": {}
+      }
     },
     "workingLine": {
       "enabled": true,
@@ -32,7 +38,25 @@
       "textIntervalMs": 60,
       "textAnimation": "disabled",
       "messages": {
-        "custom": false
+        "custom": false,
+        "values": [
+          "Sautéing…",
+          "Cooking…",
+          "Ionizing…",
+          "Zigzagging…",
+          "Razzle-dazzling…",
+          "Photosynthesizing…",
+          "Nucleating…",
+          "Brewing…",
+          "Combobulating…",
+          "Boogieing…",
+          "Befuddling…",
+          "Alchemizing…",
+          "Conjuring…",
+          "Baking…",
+          "Simmering…",
+          "Blanching…"
+        ]
       },
       "segments": {
         "tool": true,
