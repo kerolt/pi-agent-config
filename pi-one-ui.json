@@ -89,7 +89,7 @@
             "depth": 0
           },
           "segments": {
-            "cwd": false,
+            "cwd": true,
             "sessionName": true,
             "gitBranch": false,
             "gitStatus": false,
