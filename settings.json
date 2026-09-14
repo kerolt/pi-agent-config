@@ -1,6 +1,6 @@
 {
-  "defaultProvider": "openai-codex",
-  "defaultModel": "gpt-6-astra",
+  "defaultProvider": "opencode-go",
+  "defaultModel": "deepseek-v4.1-flash",
   "theme": "cc-dark",
   "outputPad": 1,
   "markdown": {
@@ -33,5 +33,8 @@
   },
   "retry": {
     "enabled": true
+  },
+  "modelThinkingLevels": {
+    "opencode-go/deepseek-v4.1-flash": "max"
   }
 }
