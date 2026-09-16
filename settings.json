@@ -4,7 +4,8 @@
   "theme": "cc-dark",
   "outputPad": 1,
   "markdown": {
-    "codeBlockIndent": ""
+    "codeBlockIndent": "",
+    "mermaid": "streaming"
   },
   "skills": [
     "+skills/agently-mail/SKILL.md"
@@ -37,5 +38,8 @@
   "modelThinkingLevels": {
     "opencode-go/deepseek-v4.1-flash": "max",
     "openai-codex/gpt-6-astra": "max"
-  }
+  },
+  "showCacheMissNotices": true,
+  "collapseChangelog": true,
+  "defaultProjectTrust": "ask"
 }
