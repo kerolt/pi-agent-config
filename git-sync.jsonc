@@ -1,12 +1,14 @@
- {
-   "autoSyncIntervalMinutes": 5,
-   "includeHostname": true,
-   "warnOnPublicRemote": true,
-   "machineLocalSettings": ["lastChangelogVersion"],
-   "extraPaths": [
-     "keybindings.json",
-     "permission-modes.json",
-     "models.json",
-     "pi-one-ui.json"
-   ]
- }
+{
+  "autoSyncIntervalMinutes": 5,
+  "includeHostname": true,
+  "warnOnPublicRemote": true,
+  "machineLocalSettings": [
+    "lastChangelogVersion"
+  ],
+  "extraPaths": [
+    "keybindings.json",
+    "permission-modes.json",
+    "models.json",
+    "pi-one-ui.json"
+  ]
+}
