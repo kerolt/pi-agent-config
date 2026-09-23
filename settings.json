@@ -21,7 +21,8 @@
     "npm:pi-web-access",
     "npm:@ff-labs/pi-fff",
     "npm:pi-config-sync",
-    "git:github.com/Imbad0202/academic-research-skills"
+    "git:github.com/Imbad0202/academic-research-skills",
+    "npm:pi-ask-user"
   ],
   "quietStartup": true,
   "defaultThinkingLevel": "high",
