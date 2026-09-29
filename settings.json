@@ -11,6 +11,7 @@
     "+skills/agently-mail/SKILL.md"
   ],
   "packages": [
+    "npm:pi-one-ui",
     "npm:@agnishc/edb-agent-steer",
     "git:github.com/pasky/pi-ssh-image-clipboard@55db30a67dc039aec243c0737f5fec179add057c",
     "npm:pi-subagents",
@@ -22,8 +23,7 @@
     "npm:pi-config-sync",
     "git:github.com/Imbad0202/academic-research-skills",
     "npm:pi-ask-user",
-    "../../.local/lib/node_modules/lib/node_modules/@jmfederico/pi-web/dist/pi-packages/relays",
-    "npm:pi-cc-extensions"
+    "../../.local/lib/node_modules/lib/node_modules/@jmfederico/pi-web/dist/pi-packages/relays"
   ],
   "quietStartup": true,
   "defaultThinkingLevel": "high",
