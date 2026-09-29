@@ -22,7 +22,8 @@
     "npm:@ff-labs/pi-fff",
     "npm:pi-config-sync",
     "git:github.com/Imbad0202/academic-research-skills",
-    "npm:pi-ask-user"
+    "npm:pi-ask-user",
+    "../../.local/lib/node_modules/lib/node_modules/@jmfederico/pi-web/dist/pi-packages/relays"
   ],
   "quietStartup": true,
   "defaultThinkingLevel": "high",
