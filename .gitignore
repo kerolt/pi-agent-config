@@ -39,9 +39,6 @@
 !permission-modes.json
 !permission-modes.json/
 !permission-modes.json/**
-!models.json
-!models.json/
-!models.json/**
 !pi-one-ui.json
 !pi-one-ui.json/
 !pi-one-ui.json/**
