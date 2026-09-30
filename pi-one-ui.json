@@ -157,6 +157,6 @@
     "enableAliases": false
   },
   "colors": {
-    "editorThinkingMax": "purple"
+    "editorThinkingMax": "fg:purple"
   }
 }
