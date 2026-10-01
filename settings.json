@@ -41,5 +41,6 @@
   },
   "showCacheMissNotices": true,
   "collapseChangelog": true,
-  "defaultProjectTrust": "ask"
+  "defaultProjectTrust": "ask",
+  "deviceId": "9b738b18-1183-4dcb-be71-defb9b972afb"
 }
