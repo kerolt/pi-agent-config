@@ -3,7 +3,9 @@
   "includeHostname": true,
   "warnOnPublicRemote": true,
   "machineLocalSettings": [
-    "lastChangelogVersion"
+    "lastChangelogVersion",
+    "defaultProvider",
+    "defaultModel"
   ],
   "extraPaths": [
     "keybindings.json",

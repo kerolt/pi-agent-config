@@ -1,6 +1,4 @@
 {
-  "defaultProvider": "deepseek",
-  "defaultModel": "deepseek-flash",
   "theme": "cc-dark",
   "outputPad": 1,
   "markdown": {
