@@ -26,7 +26,7 @@
   "quietStartup": true,
   "defaultThinkingLevel": "high",
   "hideThinkingBlock": true,
-  "tuiMode": "regular",
+  "tuiMode": "fullscreen",
   "fullscreenScrollbar": "hidden",
   "steeringMode": "one-at-a-time",
   "compaction": {
@@ -42,5 +42,6 @@
   "showCacheMissNotices": true,
   "collapseChangelog": true,
   "defaultProjectTrust": "ask",
-  "deviceId": "9b738b18-1183-4dcb-be71-defb9b972afb"
+  "deviceId": "9b738b18-1183-4dcb-be71-defb9b972afb",
+  "fullscreenWheelScrollLines": 1
 }
