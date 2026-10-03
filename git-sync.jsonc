@@ -9,7 +9,6 @@
   ],
   "extraPaths": [
     "keybindings.json",
-    "permission-modes.json",
     "pi-one-ui.json"
   ]
 }

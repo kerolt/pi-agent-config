@@ -5,9 +5,7 @@
     "codeBlockIndent": "",
     "mermaid": "streaming"
   },
-  "skills": [
-    "+skills/agently-mail/SKILL.md"
-  ],
+  "skills": [],
   "packages": [
     "npm:@agnishc/edb-agent-steer",
     "npm:@ff-labs/pi-fff",
@@ -20,8 +18,8 @@
     "npm:pi-web-access",
     "git:github.com/Imbad0202/academic-research-skills",
     "git:github.com/kerolt/pi-ssh-image-clipboard",
-    "../../.local/lib/node_modules/lib/node_modules/@jmfederico/pi-web/dist/pi-packages/relays",
-    "git:github.com/kerolt/pi-one-ui"
+    "git:github.com/kerolt/pi-one-ui",
+    "../../.local/lib/node_modules/lib/node_modules/@jmfederico/pi-web/dist/pi-packages/relays"
   ],
   "quietStartup": true,
   "defaultThinkingLevel": "high",
