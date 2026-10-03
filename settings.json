@@ -9,6 +9,7 @@
   "packages": [
     "git:github.com/Imbad0202/academic-research-skills",
     "git:github.com/kerolt/pi-ssh-image-clipboard",
+    "git:github.com/kerolt/pi-one-ui@dev",
     "npm:@agnishc/edb-agent-steer",
     "npm:@ff-labs/pi-fff",
     "npm:@juicesharp/rpiv-ask-user-question",
@@ -18,8 +19,7 @@
     "npm:pi-config-sync",
     "npm:pi-subagents",
     "npm:pi-web-access",
-    "../../.local/lib/node_modules/lib/node_modules/@jmfederico/pi-web/dist/pi-packages/relays",
-    "git:github.com/kerolt/pi-one-ui@dev"
+    "../../.local/lib/node_modules/lib/node_modules/@jmfederico/pi-web/dist/pi-packages/relays"
   ],
   "quietStartup": true,
   "defaultThinkingLevel": "high",
