@@ -9,7 +9,7 @@
   "packages": [
     "git:github.com/kerolt/pi-config-sync",
     "git:github.com/kerolt/pi-ssh-image-clipboard",
-    "git:github.com/kerolt/pi-one-ui@dev",
+    "git:github.com/kerolt/pi-one-ui",
     "npm:@agnishc/edb-agent-steer",
     "npm:@ff-labs/pi-fff",
     "npm:@juicesharp/rpiv-ask-user-question",
