@@ -2,7 +2,8 @@
  * 给 rpiv-todo 的事项面板加上鼠标单击折叠。
  *
  * 折叠时面板只留标题行与末尾的空白分隔行，展开时完全保持原样：面板的渲染内容、状态机、
- * ctrl+shift+t 快捷键都不受影响。做法是找到 rpiv-todo 注册到 aboveEditor widget 容器里的
+ * ctrl+shift+t 快捷键都不受影响。单击面板切换折叠，按住拖动仍然走 Pi 自己的文本选择，
+ * 所以面板里的文本照旧可以选中与复制。做法是找到 rpiv-todo 注册到 aboveEditor widget 容器里的
  * 那个组件实例，改写它的 render 与 handleMouse。宿主没有提供包装 widget 的入口，只能改写
  * 实例方法，因此这里依赖两件内部事实：
  *
@@ -65,20 +66,24 @@ export default function (pi: ExtensionAPI) {
 		return container.children.find((item) => item !== owner && !(item instanceof Spacer)) as PanelComponent | undefined;
 	};
 
-	/** 接管面板上的鼠标按压与单击 */
+	/** 只在完整的单击上切换折叠，按压与拖动都放行给 Pi 的文本选择 */
+	const onPanelMouse = (event: TuiMouseEvent): TuiMouseEventResult | undefined => {
+		if (event.button !== "left" || event.type !== "click") return undefined;
+		collapsed = !collapsed;
+		// 行数变化需要整屏重绘
+		tui?.requestRender(true);
+		return { handled: true, render: true };
+	};
+
+	/**
+	 * 接管面板的渲染与单击，按压不接管：按下时没有组件接手的场合，Pi 会开始文本选择，
+	 * 并在松开后没有拖动的情况下合成一个 click 事件再派发给布局。放行按压因此可以同时
+	 * 保住面板上的拖选与复制。
+	 */
 	const wrap = (panel: PanelComponent): void => {
 		const render = panel.render.bind(panel);
 		panel.render = (width: number) => fold(render(width));
-		panel.handleMouse = (event) => {
-			if (event.button !== "left") return undefined;
-			// 先接住按压：Pi 才会把松开时的 click 派发到这里，同时不会在面板上开始文本选择
-			if (event.type === "press") return { handled: true, render: false };
-			if (event.type !== "click") return undefined;
-			collapsed = !collapsed;
-			// 行数变化需要整屏重绘
-			tui?.requestRender(true);
-			return { handled: true, render: true };
-		};
+		panel.handleMouse = onPanelMouse;
 		wrapped.add(panel);
 	};
 
