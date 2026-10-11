@@ -1,12 +1,14 @@
 /**
  * 限制工具输出在终端 transcript 中展示的行数。
  *
- * bash 与 powershell：折叠状态只显示命令行本身，输出全部隐藏。
- * edit：折叠状态只显示文件路径，diff 全部隐藏；展开后最多展示 MAX_DIFF_LINES 行。
- * write：折叠状态只显示文件路径，写入内容全部隐藏；展开后最多展示 MAX_WRITE_LINES 行。
- * 所有工具都可以按 ctrl+o 或点击该行展开，命令行尾部的附注给出被隐藏的数量。
+ * 内置工具折叠时都只显示调用行本身，输出结果完全隐藏，调用行尾部的附注给出被隐藏的数量。
+ * 展开后结果最多展示 100 行（edit 的 diff 与 write 的内容各自使用同样的上限）。
+ * 展开与折叠都可以按 ctrl+o 或点击该行触发。
+ *
+ * 自带渲染器的扩展工具（例如 subagent 的运行进度）保留自己的展示方式。
  */
 
+import type { Component } from "@earendil-works/pi-tui";
 import type { EditToolDetails, ExtensionAPI, ToolRenderers } from "@earendil-works/pi-coding-agent";
 import {
 	DEFAULT_MAX_BYTES,
@@ -14,15 +16,32 @@ import {
 	getLanguageFromPath,
 	highlightCode,
 	keyHint,
+	keyText,
 	renderDiff,
 } from "@earendil-works/pi-coding-agent";
-import { Container, Spacer, Text, stripTerminalSequences } from "@earendil-works/pi-tui";
+import {
+	Container,
+	Spacer,
+	Text,
+	stripTerminalSequences,
+	truncateToWidth,
+	visibleWidth,
+} from "@earendil-works/pi-tui";
+
+/** 展开状态下结果展示的最大行数 */
+const MAX_RESULT_LINES = 100;
 
 /** 展开状态下 edit diff 展示的最大行数 */
 const MAX_DIFF_LINES = 100;
 
 /** 展开状态下 write 内容展示的最大行数 */
 const MAX_WRITE_LINES = 100;
+
+/** 调用行参数预览的最大字符数 */
+const COLLAPSED_ARGS_CHARS = 100;
+
+/** 需要折叠结果的内置工具 */
+const FOLDED_BUILTIN_TOOLS = new Set(["read", "grep", "find", "ls"]);
 
 function lineLabel(count: number): string {
 	return `${count} line${count === 1 ? "" : "s"}`;
@@ -42,7 +61,7 @@ function formatDuration(ms: number): string {
 	return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
-/** 命令行尾部的附注 */
+/** 调用行尾部的附注 */
 function formatSuffix(parts: string[], withExpandKey: boolean, theme: any): string {
 	if (parts.length === 0) {
 		return "";
@@ -276,6 +295,115 @@ const shellRenderers: Record<string, ToolRenderers> = {
 	powershell: createShellRenderers("PS>"),
 };
 
+/** 在调用行末尾接上附注的包装组件，不依赖内置渲染器返回的组件类型 */
+class CallLine implements Component {
+	private suffix = "";
+
+	constructor(private readonly inner: Component) {}
+
+	setSuffix(suffix: string): void {
+		this.suffix = suffix;
+	}
+
+	render(width: number): string[] {
+		const lines = [...this.inner.render(width)];
+		if (!this.suffix || lines.length === 0) {
+			return lines;
+		}
+		const index = lines.length - 1;
+		const base = lines[index].replace(/ +$/, "");
+		const available = Math.max(1, width - visibleWidth(this.suffix));
+		lines[index] = truncateToWidth(base, available, "...") + this.suffix;
+		return lines;
+	}
+
+	invalidate(): void {
+		this.inner.invalidate();
+	}
+}
+
+/** 没有专属渲染器的工具使用的调用行：工具名加参数预览 */
+function genericCallText(toolName: string, args: unknown, theme: any): string {
+	const header = theme.fg("toolTitle", theme.bold(toolName));
+	if (args == null) {
+		return header;
+	}
+	const entries = typeof args === "object" && !Array.isArray(args) ? Object.entries(args) : [["args", args]];
+	if (entries.length === 0) {
+		return header;
+	}
+	const pairs = entries.map(([key, value]) => `${key}=${JSON.stringify(value) ?? String(value)}`).join(" ");
+	const preview = pairs.length > COLLAPSED_ARGS_CHARS ? `${pairs.slice(0, COLLAPSED_ARGS_CHARS - 3)}...` : pairs;
+	return `${header} ${theme.fg("muted", preview)}`;
+}
+
+/** 折叠结果、限制展开行数的通用渲染包装 */
+function createGenericRenderers(toolName: string, base: ToolRenderers | undefined): ToolRenderers {
+	return {
+		renderShell: base?.renderShell,
+
+		renderCall(args, theme, context) {
+			const inner = base?.renderCall
+				? base.renderCall(args, theme, { ...context, lastComponent: context.state.innerCall })
+				: new Text(genericCallText(toolName, args, theme), 0, 0);
+			const line = new CallLine(inner);
+			const innerText: unknown = (inner as any)?.text;
+			context.state.innerCall = inner;
+			context.state.callLine = line;
+			// 内置的紧凑调用行已经自带展开提示，不再重复添加
+			context.state.innerCallText = typeof innerText === "string" ? innerText : "";
+			return line;
+		},
+
+		renderResult(result, options, theme, context) {
+			const state = context.state;
+			// 内置渲染器通过 lastComponent 复用上次返回的组件，包装层不能占用这个位置
+			const innerContext = { ...context, lastComponent: state.innerResult };
+			const output = extractOutput(result.content);
+			const lines = output ? output.split("\n") : [];
+			const expandKey = keyText("app.tools.expand");
+			const hinted = expandKey.length > 0 && String(state.innerCallText).includes(expandKey);
+
+			const renderInner = (target: any, targetOptions: any, colorKey: string) => {
+				if (base?.renderResult) {
+					return base.renderResult(target, targetOptions, theme, innerContext);
+				}
+				const text = extractOutput(target.content);
+				return text ? new Text(`\n${theme.fg(colorKey, text)}`, 0, 0) : new Container();
+			};
+
+			if (context.isError) {
+				const component = renderInner(result, options, "error");
+				state.innerResult = component;
+				return component;
+			}
+
+			if (!options.expanded) {
+				if (lines.length > 0 && !hinted) {
+					state.callLine?.setSuffix(formatSuffix([lineLabel(lines.length)], true, theme));
+				}
+				return new Container();
+			}
+
+			if (lines.length > MAX_RESULT_LINES) {
+				const limited = { ...result, content: [{ type: "text", text: lines.slice(0, MAX_RESULT_LINES).join("\n") }] };
+				const inner = renderInner(limited, options, "toolOutput");
+				state.innerResult = inner;
+				const rest = lines.length - MAX_RESULT_LINES;
+				const hint = `${theme.fg("muted", `... (${rest} more lines, `)}${keyHint("app.tools.expand", "to collapse")}${theme.fg("muted", ")")}`;
+				const container = new Container();
+				container.addChild(inner);
+				container.addChild(new Text(`\n${hint}`, 0, 0));
+				return container;
+			}
+
+			const component = renderInner(result, options, "toolOutput");
+			state.innerResult = component;
+			return component;
+		},
+	};
+}
+
 export default function (pi: ExtensionAPI) {
 	pi.registerToolRenderer((toolName, next): ToolRenderers | undefined => {
 		const shell = shellRenderers[toolName];
@@ -288,6 +416,11 @@ export default function (pi: ExtensionAPI) {
 		if (toolName === "write") {
 			return writeRenderers;
 		}
-		return next();
+		const base = next();
+		// 扩展工具自带的结果渲染器保留自己的展示，没有渲染器的工具才做折叠
+		if (FOLDED_BUILTIN_TOOLS.has(toolName) || !base?.renderResult) {
+			return createGenericRenderers(toolName, base);
+		}
+		return base;
 	});
 }
