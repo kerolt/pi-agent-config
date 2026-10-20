@@ -19,7 +19,7 @@ const PROMPT_WIDTH = 2;
 const PROMPT_GLYPH = "❯";
 const PROMPT_COLOR = "accent";
 
-/** 输入区域上下各留的空白行数 */
+/** 输入区域上下各留的留白行数 */
 const PADDING_Y = 1;
 
 /** 标记原有上下横线位置的内部标记，不会出现在渲染结果里 */

@@ -2,6 +2,7 @@
  * 限制工具输出在终端 transcript 中展示的行数。
  *
  * 内置工具折叠时都只显示调用行本身，输出结果完全隐藏，调用行尾部的附注给出被隐藏的数量。
+ * 调用行始终只占一行，命令换行或过长时用省略号截断。
  * 展开后结果最多展示 100 行（edit 的 diff 与 write 的内容各自使用同样的上限）。
  * 展开与折叠都可以按 ctrl+o 或点击该行触发。
  *
@@ -61,31 +62,75 @@ function formatDuration(ms: number): string {
 	return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
-/** 调用行尾部的附注 */
+/** 调用行尾部的附注，不含前面的省略号分隔符 */
 function formatSuffix(parts: string[], withExpandKey: boolean, theme: any): string {
 	if (parts.length === 0) {
 		return "";
 	}
 	const body = parts.join(", ");
 	if (!withExpandKey) {
-		return ` ${theme.fg("muted", `... (${body})`)}`;
+		return theme.fg("muted", `(${body})`);
 	}
-	return ` ${theme.fg("muted", `... (${body}, `)}${keyHint("app.tools.expand", "to expand")}${theme.fg("muted", ")")}`;
+	return `${theme.fg("muted", `(${body}, `)}${keyHint("app.tools.expand", "to expand")}${theme.fg("muted", ")")}`;
+}
+
+/**
+ * 把调用行文字与附注合成一行：附注优先保留，文字过长时截断。
+ * 文字已经以省略号结尾时不再重复加分隔的省略号。
+ */
+function composeCallLine(text: string, suffix: string, width: number): string {
+	const separator = " ... ";
+	if (!suffix) {
+		return truncateToWidth(text, width, "...");
+	}
+	const suffixWidth = visibleWidth(suffix);
+	if (width <= suffixWidth + separator.length) {
+		return truncateToWidth(suffix, width, "...");
+	}
+	const textWidth = Math.max(1, width - suffixWidth - visibleWidth(separator));
+	const truncated = truncateToWidth(text, textWidth, "...");
+	const ended = stripTerminalSequences(truncated).trimEnd().endsWith("...");
+	return truncated + (ended ? " " : separator) + suffix;
+}
+
+/**
+ * 调用行组件：始终只渲染一行，超出宽度用省略号截断，附注接在同一行末尾。
+ * 结果渲染后可以改写附注，不需要重建组件。
+ */
+class HeaderLine implements Component {
+	private suffix = "";
+
+	constructor(public text: string) {}
+
+	setText(text: string): void {
+		this.text = text;
+	}
+
+	setSuffix(suffix: string): void {
+		this.suffix = suffix;
+	}
+
+	render(width: number): string[] {
+		return [composeCallLine(this.text, this.suffix, width)];
+	}
+
+	invalidate(): void {}
 }
 
 /** 记录调用行文本，并把调用行组件存入 state 供结果渲染改写附注 */
-function updateCallHeader(context: any, headerText: string, suffix = ""): Text {
-	const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+function updateCallHeader(context: any, headerText: string, suffix = ""): HeaderLine {
+	const line = context.lastComponent instanceof HeaderLine ? context.lastComponent : new HeaderLine("");
 	context.state.headerText = headerText;
-	context.state.callComponent = text;
-	text.setText(headerText + suffix);
-	return text;
+	context.state.callComponent = line;
+	line.setText(headerText);
+	line.setSuffix(suffix);
+	return line;
 }
 
 function setCallSuffix(context: any, suffix: string): void {
 	const state = context.state;
-	if (state.callComponent instanceof Text && typeof state.headerText === "string") {
-		state.callComponent.setText(state.headerText + suffix);
+	if (state.callComponent instanceof HeaderLine) {
+		state.callComponent.setSuffix(suffix);
 	}
 }
 
@@ -116,7 +161,10 @@ function createShellRenderers(prompt: string): ToolRenderers {
 				state.startedAt = Date.now();
 				state.endedAt = undefined;
 			}
-			const command = typeof args?.command === "string" ? args.command : "";
+			const rawCommand = typeof args?.command === "string" ? args.command : "";
+			// 多行命令（例如用 heredoc 写脚本）只展示第一行，其余用省略号代替
+			const firstLine = rawCommand.split("\n")[0];
+			const command = rawCommand.includes("\n") ? `${firstLine} ...` : firstLine;
 			const timeout = args?.timeout ? theme.fg("muted", ` (timeout ${args.timeout}s)`) : "";
 			return updateCallHeader(context, theme.fg("toolTitle", theme.bold(`${prompt} ${command}`)) + timeout);
 		},
@@ -252,13 +300,32 @@ const writeRenderers: ToolRenderers = {
 			return updateCallHeader(context, header, formatSuffix([`invalid content arg - expected string`], false, theme));
 		}
 
-		const lines = contentLines(content);
-		const label = lineLabel(lines.length);
-		const text = updateCallHeader(context, header, formatSuffix([label], !context.expanded, theme));
-		if (!context.expanded || lines.length === 0) {
-			return text;
+		const label = lineLabel(contentLines(content).length);
+		return updateCallHeader(context, header, formatSuffix([label], !context.expanded, theme));
+	},
+
+	renderResult(result, options, theme, context) {
+		if (context.isError) {
+			const output = result.content
+				.filter((part) => part.type === "text")
+				.map((part) => part.text ?? "")
+				.join("\n");
+			return output ? new Text(`\n${theme.fg("error", output)}`, 0, 0) : new Container();
 		}
 
+		// 写入内容放在结果区，展开时才展示，调用行保持一行的样式
+		if (!options.expanded) {
+			return new Container();
+		}
+		const content = typeof context.args?.content === "string" ? context.args.content : null;
+		if (content === null) {
+			return new Container();
+		}
+		const lines = contentLines(content);
+		if (lines.length === 0) {
+			return new Container();
+		}
+		const path = typeof context.args?.path === "string" ? context.args.path : "";
 		const shown = lines.slice(0, MAX_WRITE_LINES);
 		const lang = path ? getLanguageFromPath(path) : undefined;
 		const highlighted = lang ? highlightCode(shown.join("\n").replace(/\t/g, "   "), lang) : undefined;
@@ -266,27 +333,12 @@ const writeRenderers: ToolRenderers = {
 			.map((line, index) => highlighted?.[index] ?? theme.fg("toolOutput", line.replace(/\t/g, "   ")))
 			.join("\n");
 
-		let output = `${header}${formatSuffix([label], false, theme)}\n\n${body}`;
+		let output = `\n${body}`;
 		if (lines.length > MAX_WRITE_LINES) {
 			const rest = lines.length - MAX_WRITE_LINES;
-			output += `\n${theme.fg("muted", `... (${rest} more lines, ${label} total, `)}${keyHint("app.tools.expand", "to collapse")}${theme.fg("muted", ")")}`;
+			output += `\n${theme.fg("muted", `... (${rest} more lines, ${lineLabel(lines.length)} total, `)}${keyHint("app.tools.expand", "to collapse")}${theme.fg("muted", ")")}`;
 		}
-		text.setText(output);
-		return text;
-	},
-
-	renderResult(result, _options, theme, context) {
-		if (!context.isError) {
-			return new Container();
-		}
-		const output = result.content
-			.filter((part) => part.type === "text")
-			.map((part) => part.text ?? "")
-			.join("\n");
-		if (!output) {
-			return new Container();
-		}
-		return new Text(`\n${theme.fg("error", output)}`, 0, 0);
+		return new Text(output, 0, 0);
 	},
 };
 
@@ -295,7 +347,7 @@ const shellRenderers: Record<string, ToolRenderers> = {
 	powershell: createShellRenderers("PS>"),
 };
 
-/** 在调用行末尾接上附注的包装组件，不依赖内置渲染器返回的组件类型 */
+/** 在调用行末尾接上附注的包装组件，只渲染一行，不依赖内置渲染器返回的组件类型 */
 class CallLine implements Component {
 	private suffix = "";
 
@@ -306,15 +358,9 @@ class CallLine implements Component {
 	}
 
 	render(width: number): string[] {
-		const lines = [...this.inner.render(width)];
-		if (!this.suffix || lines.length === 0) {
-			return lines;
-		}
-		const index = lines.length - 1;
-		const base = lines[index].replace(/ +$/, "");
-		const available = Math.max(1, width - visibleWidth(this.suffix));
-		lines[index] = truncateToWidth(base, available, "...") + this.suffix;
-		return lines;
+		// 内置渲染器的调用行会自己换行，这里只保留第一行
+		const base = (this.inner.render(width)[0] ?? "").replace(/ +$/, "");
+		return [composeCallLine(base, this.suffix, width)];
 	}
 
 	invalidate(): void {
