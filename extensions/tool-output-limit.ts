@@ -1,7 +1,8 @@
 /**
  * 限制工具输出在终端 transcript 中展示的行数。
  *
- * 内置工具折叠时都只显示调用行本身，输出结果完全隐藏，调用行尾部的附注给出被隐藏的数量。
+ * 工具调用自身使用 renderShell: "self"，不再走 pi 默认的带背景色和上下留白的框，
+ * 折叠时整张卡只有一行：调用行末尾接上被隐藏的行数与展开提示。
  * 调用行始终只占一行，命令换行或过长时用省略号截断。
  * 展开后结果最多展示 100 行（edit 的 diff 与 write 的内容各自使用同样的上限）。
  * 展开与折叠都可以按 ctrl+o 或点击该行触发。
@@ -22,11 +23,11 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import {
 	Container,
-	Spacer,
 	Text,
 	stripTerminalSequences,
 	truncateToWidth,
 	visibleWidth,
+	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 
 /** 展开状态下结果展示的最大行数 */
@@ -40,6 +41,94 @@ const MAX_WRITE_LINES = 100;
 
 /** 调用行参数预览的最大字符数 */
 const COLLAPSED_ARGS_CHARS = 100;
+
+/** 工具名用主题的强调色，参数与耗时等附注统一用 muted，与正文的强调部分分开 */
+const TOOL_NAME_COLOR = "accent";
+const TOOL_ARG_COLOR = "muted";
+
+/** 把内置渲染器用到的主题色换成工具调用的配色：名字 accent、参数 muted。只影响颜色字符串 */
+function toolCallTheme(theme: any): any {
+	return new Proxy(theme, {
+		get(target, property, receiver) {
+			const value = Reflect.get(target, property, receiver);
+			if (property !== "fg" || typeof value !== "function") {
+				return value;
+			}
+			return (color: string, text: string) => target.fg(color === "toolTitle" ? TOOL_NAME_COLOR : color === "accent" ? TOOL_ARG_COLOR : color, text);
+		},
+	});
+}
+
+/** 工具内容相对左边界缩进的列数 */
+const INDENT = 1;
+const INDENT_TEXT = " ".repeat(INDENT);
+
+/** 执行中的 spinner 帧与刷新间隔 */
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const SPINNER_INTERVAL_MS = 80;
+
+/** 在执行中的工具，按渲染状态登记重绘回调，spinner 才会转动 */
+const spinnerTargets = new Map<unknown, () => void>();
+let spinnerTimer: ReturnType<typeof setInterval> | undefined;
+
+function trackSpinner(context: any): void {
+	if (!context.isPartial) {
+		if (spinnerTargets.delete(context.state) && spinnerTargets.size === 0 && spinnerTimer !== undefined) {
+			clearInterval(spinnerTimer);
+			spinnerTimer = undefined;
+		}
+		return;
+	}
+	spinnerTargets.set(context.state, context.invalidate);
+	if (spinnerTimer === undefined) {
+		spinnerTimer = setInterval(() => {
+			for (const invalidate of spinnerTargets.values()) {
+				invalidate();
+			}
+		}, SPINNER_INTERVAL_MS);
+	}
+}
+
+/** 调用行左侧的状态图标：执行中为 spinner，完成时与工具名同色，失败时为红色叉 */
+function statusIcon(context: any, theme: any): string {
+	if (context.isPartial) {
+		const frame = SPINNER_FRAMES[Math.floor(Date.now() / SPINNER_INTERVAL_MS) % SPINNER_FRAMES.length];
+		return theme.fg(TOOL_NAME_COLOR, frame);
+	}
+	return context.isError ? theme.fg("error", "✗") : theme.fg(TOOL_NAME_COLOR, "✓");
+}
+
+/** 在内容左侧补上进缩进列 */
+function inset(component: Component): Component {
+	return {
+		render: (width: number) =>
+			component.render(Math.max(1, width - INDENT)).map((line) => INDENT_TEXT + line),
+		invalidate: () => component.invalidate?.(),
+	};
+}
+
+/**
+ * 展开后的正文区：整行铺满 userMessageBg，与 transcript 的其他部分区分开。
+ * 高亮与 diff 行自带的 SGR 复位会把背景色清掉，所以每遇到复位就重新打开背景色。
+ */
+function panel(component: Component, theme: any): Component {
+	return {
+		render: (width: number) => {
+			const bgOpen = theme.getBgAnsi("userMessageBg");
+			return component.render(Math.max(1, width - INDENT)).map((line) => {
+				const painted = INDENT_TEXT + line.split("\x1b[0m").join(`\x1b[0m${bgOpen}`);
+				const padding = " ".repeat(Math.max(0, width - visibleWidth(painted)));
+				return `${bgOpen}${painted}${padding}\x1b[49m`;
+			});
+		},
+		invalidate: () => component.invalidate?.(),
+	};
+}
+
+/** 结果包装：展开时铺背景面板，其余只做缩进 */
+function wrapResult(component: Component, theme: any, expanded: boolean): Component {
+	return expanded ? panel(component, theme) : inset(component);
+}
 
 /** 需要折叠结果的内置工具 */
 const FOLDED_BUILTIN_TOOLS = new Set(["read", "grep", "find", "ls"]);
@@ -93,16 +182,28 @@ function composeCallLine(text: string, suffix: string, width: number): string {
 	return truncated + (ended ? " " : separator) + suffix;
 }
 
+/** 折叠时只取标题的第一行，多行标题补上省略号，表示后面还有内容 */
+function withMoreMarker(raw: string): string {
+	const firstLine = raw.split("\n")[0].replace(/ +$/, "");
+	return raw.includes("\n") ? `${firstLine} ...` : firstLine;
+}
+
 /**
- * 调用行组件：始终只渲染一行，超出宽度用省略号截断，附注接在同一行末尾。
- * 结果渲染后可以改写附注，不需要重建组件。
+ * 调用行组件：状态图标 + 工具标题，折叠时只占一行，附注接在末尾，超出宽度截断。
+ * 展开时标题按宽度折行，完整展示命令本身。
+ * 标题可以来自内置渲染器返回的原始文本，也可以由组件自己提供。
+ * 结果渲染后改写图标与附注，不需要重建组件。
  */
-class HeaderLine implements Component {
+class CallLine implements Component {
+	private text?: string;
 	private suffix = "";
+	private icon = "";
+	private background = "";
+	private expanded = false;
 
-	constructor(public text: string) {}
+	constructor(private readonly inner?: Component) {}
 
-	setText(text: string): void {
+	setText(text: string | undefined): void {
 		this.text = text;
 	}
 
@@ -110,27 +211,76 @@ class HeaderLine implements Component {
 		this.suffix = suffix;
 	}
 
-	render(width: number): string[] {
-		return [composeCallLine(this.text, this.suffix, width)];
+	setIcon(icon: string): void {
+		this.icon = icon;
 	}
 
-	invalidate(): void {}
+	setExpanded(expanded: boolean): void {
+		this.expanded = expanded;
+	}
+
+	/** 展开时和正文面板使用同一背景色，形成一块连续的区域 */
+	setBackground(background: string | undefined): void {
+		this.background = background ?? "";
+	}
+
+	render(width: number): string[] {
+		const raw = this.text ?? (this.inner ? (this.inner.render(Math.max(1, width - INDENT))[0] ?? "") : "");
+		const prefix = INDENT_TEXT + (this.icon ? `${this.icon} ` : "");
+		const prefixWidth = visibleWidth(prefix);
+		const contentWidth = Math.max(1, width - prefixWidth);
+		const lines = this.expanded
+			? this.renderExpanded(raw, prefix, prefixWidth, contentWidth, width)
+			: [prefix + composeCallLine(withMoreMarker(raw), this.suffix, contentWidth)];
+		if (!this.background) {
+			return lines;
+		}
+		return lines.map((line) => {
+			const painted = line.split("\x1b[0m").join(`\x1b[0m${this.background}`);
+			const padding = " ".repeat(Math.max(0, width - visibleWidth(painted)));
+			return `${this.background}${painted}${padding}\x1b[49m`;
+		});
+	}
+
+	/** 展开时把标题完整折行，附注在末行放得下就接在末行，否则另起一行 */
+	private renderExpanded(raw: string, prefix: string, prefixWidth: number, contentWidth: number, width: number): string[] {
+		const indent = " ".repeat(prefixWidth);
+		const trailingTrimmed = wrapTextWithAnsi(raw, contentWidth).map((line) => line.replace(/ +$/, ""));
+		const rendered = trailingTrimmed.map((line, index) => (index === 0 ? prefix : indent) + line);
+		if (!this.suffix) {
+			return rendered;
+		}
+		const lastIndex = rendered.length - 1;
+		const last = rendered[lastIndex] ?? prefix;
+		if (visibleWidth(last) + visibleWidth(this.suffix) + 1 <= width) {
+			rendered[lastIndex] = `${last} ${this.suffix}`;
+			return rendered;
+		}
+		return [...rendered, `${INDENT_TEXT}${this.suffix}`];
+	}
+
+	invalidate(): void {
+		this.inner?.invalidate();
+	}
 }
 
-/** 记录调用行文本，并把调用行组件存入 state 供结果渲染改写附注 */
-function updateCallHeader(context: any, headerText: string, suffix = ""): HeaderLine {
-	const line = context.lastComponent instanceof HeaderLine ? context.lastComponent : new HeaderLine("");
-	context.state.headerText = headerText;
+/** 记录标题、图标与附注，并把组件存入 state 供结果渲染改写 */
+function updateCallHeader(context: any, theme: any, headerText: string, suffix = ""): CallLine {
+	const line = context.lastComponent instanceof CallLine ? context.lastComponent : new CallLine();
 	context.state.callComponent = line;
 	line.setText(headerText);
+	line.setIcon(statusIcon(context, theme));
 	line.setSuffix(suffix);
+	line.setExpanded(Boolean(context.expanded));
+	line.setBackground(context.expanded ? theme.getBgAnsi("userMessageBg") : undefined);
+	trackSpinner(context);
 	return line;
 }
 
 function setCallSuffix(context: any, suffix: string): void {
-	const state = context.state;
-	if (state.callComponent instanceof HeaderLine) {
-		state.callComponent.setSuffix(suffix);
+	const line = context.state.callComponent;
+	if (line instanceof CallLine) {
+		line.setSuffix(suffix);
 	}
 }
 
@@ -153,8 +303,10 @@ function contentLines(content: string): string[] {
 	return lines.slice(0, end);
 }
 
-function createShellRenderers(prompt: string): ToolRenderers {
+function createShellRenderers(toolName: string): ToolRenderers {
 	return {
+		renderShell: "self",
+
 		renderCall(args, theme, context) {
 			const state = context.state;
 			if (context.executionStarted && state.startedAt === undefined) {
@@ -162,11 +314,9 @@ function createShellRenderers(prompt: string): ToolRenderers {
 				state.endedAt = undefined;
 			}
 			const rawCommand = typeof args?.command === "string" ? args.command : "";
-			// 多行命令（例如用 heredoc 写脚本）只展示第一行，其余用省略号代替
-			const firstLine = rawCommand.split("\n")[0];
-			const command = rawCommand.includes("\n") ? `${firstLine} ...` : firstLine;
-			const timeout = args?.timeout ? theme.fg("muted", ` (timeout ${args.timeout}s)`) : "";
-			return updateCallHeader(context, theme.fg("toolTitle", theme.bold(`${prompt} ${command}`)) + timeout);
+			// 完整命令交给调用行处理：折叠时取第一行，展开时按宽度折行
+			const header = `${theme.fg(TOOL_NAME_COLOR, theme.bold(toolName))} ${theme.fg(TOOL_ARG_COLOR, rawCommand)}`;
+			return updateCallHeader(context, theme, header);
 		},
 
 		renderResult(result, options, theme, context) {
@@ -214,8 +364,7 @@ function createShellRenderers(prompt: string): ToolRenderers {
 
 			if (options.expanded && outputLines.length > 0) {
 				const styled = outputLines.map((line) => theme.fg("toolOutput", line)).join("\n");
-				component.addChild(new Spacer(1));
-				component.addChild(new Text(`\n${styled}`, 0, 0));
+				component.addChild(wrapResult(new Text(`\n${styled}`, 0, 0), theme, true));
 			}
 
 			if (truncation?.truncated || fullOutputPath) {
@@ -232,7 +381,7 @@ function createShellRenderers(prompt: string): ToolRenderers {
 						);
 					}
 				}
-				component.addChild(new Text(`\n${theme.fg("warning", `[${warnings.join(". ")}]`)}`, 0, 0));
+				component.addChild(wrapResult(new Text(`\n${theme.fg("warning", `[${warnings.join(". ")}]`)}`, 0, 0), theme, options.expanded));
 			}
 
 			component.invalidate();
@@ -242,9 +391,11 @@ function createShellRenderers(prompt: string): ToolRenderers {
 }
 
 const editRenderers: ToolRenderers = {
+	renderShell: "self",
+
 	renderCall(args, theme, context) {
 		const path = typeof args?.path === "string" ? args.path : "";
-		return updateCallHeader(context, `${theme.fg("toolTitle", theme.bold("edit"))} ${theme.fg("accent", path)}`);
+		return updateCallHeader(context, theme, `${theme.fg(TOOL_NAME_COLOR, theme.bold("edit"))} ${theme.fg(TOOL_ARG_COLOR, path)}`);
 	},
 
 	renderResult(result, options, theme, context) {
@@ -253,13 +404,13 @@ const editRenderers: ToolRenderers = {
 
 		if (context.isError) {
 			setCallSuffix(context, "");
-			return new Text(theme.fg("error", text), 0, 0);
+			return wrapResult(new Text(theme.fg("error", text), 0, 0), theme, options.expanded);
 		}
 
 		const diff = (result.details as EditToolDetails | undefined)?.diff;
 		if (!diff) {
 			setCallSuffix(context, "");
-			return new Text(theme.fg("toolOutput", text), 0, 0);
+			return wrapResult(new Text(theme.fg("toolOutput", text), 0, 0), theme, options.expanded);
 		}
 
 		const lines = diff.split("\n");
@@ -286,22 +437,24 @@ const editRenderers: ToolRenderers = {
 			const rest = lines.length - MAX_DIFF_LINES;
 			body += `\n${theme.fg("muted", `... (${rest} more diff lines, `)}${keyHint("app.tools.expand", "to collapse")}${theme.fg("muted", ")")}`;
 		}
-		return new Text(body, 0, 0);
+		return wrapResult(new Text(`\n${body}`, 0, 0), theme, true);
 	},
 };
 
 const writeRenderers: ToolRenderers = {
+	renderShell: "self",
+
 	renderCall(args, theme, context) {
 		const path = typeof args?.path === "string" ? args.path : "";
-		const header = `${theme.fg("toolTitle", theme.bold("write"))} ${theme.fg("accent", path)}`;
+		const header = `${theme.fg(TOOL_NAME_COLOR, theme.bold("write"))} ${theme.fg(TOOL_ARG_COLOR, path)}`;
 		const content = typeof args?.content === "string" ? args.content : null;
 
 		if (content === null) {
-			return updateCallHeader(context, header, formatSuffix([`invalid content arg - expected string`], false, theme));
+			return updateCallHeader(context, theme, header, formatSuffix([`invalid content arg - expected string`], false, theme));
 		}
 
 		const label = lineLabel(contentLines(content).length);
-		return updateCallHeader(context, header, formatSuffix([label], !context.expanded, theme));
+		return updateCallHeader(context, theme, header, formatSuffix([label], !context.expanded, theme));
 	},
 
 	renderResult(result, options, theme, context) {
@@ -310,7 +463,7 @@ const writeRenderers: ToolRenderers = {
 				.filter((part) => part.type === "text")
 				.map((part) => part.text ?? "")
 				.join("\n");
-			return output ? new Text(`\n${theme.fg("error", output)}`, 0, 0) : new Container();
+			return output ? wrapResult(new Text(`\n${theme.fg("error", output)}`, 0, 0), theme, options.expanded) : new Container();
 		}
 
 		// 写入内容放在结果区，展开时才展示，调用行保持一行的样式
@@ -338,39 +491,18 @@ const writeRenderers: ToolRenderers = {
 			const rest = lines.length - MAX_WRITE_LINES;
 			output += `\n${theme.fg("muted", `... (${rest} more lines, ${lineLabel(lines.length)} total, `)}${keyHint("app.tools.expand", "to collapse")}${theme.fg("muted", ")")}`;
 		}
-		return new Text(output, 0, 0);
+		return wrapResult(new Text(output, 0, 0), theme, true);
 	},
 };
 
 const shellRenderers: Record<string, ToolRenderers> = {
-	bash: createShellRenderers("$"),
-	powershell: createShellRenderers("PS>"),
+	bash: createShellRenderers("bash"),
+	powershell: createShellRenderers("powershell"),
 };
-
-/** 在调用行末尾接上附注的包装组件，只渲染一行，不依赖内置渲染器返回的组件类型 */
-class CallLine implements Component {
-	private suffix = "";
-
-	constructor(private readonly inner: Component) {}
-
-	setSuffix(suffix: string): void {
-		this.suffix = suffix;
-	}
-
-	render(width: number): string[] {
-		// 内置渲染器的调用行会自己换行，这里只保留第一行
-		const base = (this.inner.render(width)[0] ?? "").replace(/ +$/, "");
-		return [composeCallLine(base, this.suffix, width)];
-	}
-
-	invalidate(): void {
-		this.inner.invalidate();
-	}
-}
 
 /** 没有专属渲染器的工具使用的调用行：工具名加参数预览 */
 function genericCallText(toolName: string, args: unknown, theme: any): string {
-	const header = theme.fg("toolTitle", theme.bold(toolName));
+	const header = theme.fg(TOOL_NAME_COLOR, theme.bold(toolName));
 	if (args == null) {
 		return header;
 	}
@@ -380,20 +512,25 @@ function genericCallText(toolName: string, args: unknown, theme: any): string {
 	}
 	const pairs = entries.map(([key, value]) => `${key}=${JSON.stringify(value) ?? String(value)}`).join(" ");
 	const preview = pairs.length > COLLAPSED_ARGS_CHARS ? `${pairs.slice(0, COLLAPSED_ARGS_CHARS - 3)}...` : pairs;
-	return `${header} ${theme.fg("muted", preview)}`;
+	return `${header} ${theme.fg(TOOL_ARG_COLOR, preview)}`;
 }
 
 /** 折叠结果、限制展开行数的通用渲染包装 */
 function createGenericRenderers(toolName: string, base: ToolRenderers | undefined): ToolRenderers {
 	return {
-		renderShell: base?.renderShell,
+		renderShell: "self",
 
 		renderCall(args, theme, context) {
 			const inner = base?.renderCall
-				? base.renderCall(args, theme, { ...context, lastComponent: context.state.innerCall })
+				? base.renderCall(args, toolCallTheme(theme), { ...context, lastComponent: context.state.innerCall })
 				: new Text(genericCallText(toolName, args, theme), 0, 0);
 			const line = new CallLine(inner);
 			const innerText: unknown = (inner as any)?.text;
+			line.setText(typeof innerText === "string" ? innerText : undefined);
+			line.setIcon(statusIcon(context, theme));
+			line.setExpanded(Boolean(context.expanded));
+			line.setBackground(context.expanded ? theme.getBgAnsi("userMessageBg") : undefined);
+			trackSpinner(context);
 			context.state.innerCall = inner;
 			context.state.callLine = line;
 			// 内置的紧凑调用行已经自带展开提示，不再重复添加
@@ -421,7 +558,7 @@ function createGenericRenderers(toolName: string, base: ToolRenderers | undefine
 			if (context.isError) {
 				const component = renderInner(result, options, "error");
 				state.innerResult = component;
-				return component;
+				return wrapResult(component, theme, options.expanded);
 			}
 
 			if (!options.expanded) {
@@ -440,12 +577,12 @@ function createGenericRenderers(toolName: string, base: ToolRenderers | undefine
 				const container = new Container();
 				container.addChild(inner);
 				container.addChild(new Text(`\n${hint}`, 0, 0));
-				return container;
+				return wrapResult(container, theme, true);
 			}
 
 			const component = renderInner(result, options, "toolOutput");
 			state.innerResult = component;
-			return component;
+			return wrapResult(component, theme, true);
 		},
 	};
 }

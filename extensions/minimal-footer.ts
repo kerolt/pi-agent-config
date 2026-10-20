@@ -2,7 +2,8 @@
  * 简洁版页脚。
  *
  * 左侧：模型名、思考程度、工作区路径。
- * 右侧：输入输出 token 量、缓存命中率、上下文窗口用量。
+ * 右侧：本轮或上一轮回答耗时、本次会话累计回答耗时、输入输出 token 量、缓存命中率、上下文窗口用量。
+ * 回答耗时从用户发送消息开始计时，回答结束后保留最后一次的数值。
  * 其他扩展通过 ctx.ui.setStatus 设置的状态仍然显示在下面几行，不会丢。
  */
 
@@ -14,6 +15,62 @@ interface UsageTotals {
 	output: number;
 	cacheRead: number;
 	cacheWrite: number;
+}
+
+/** 本轮回答的开始时间、上一轮的耗时与本次会话累计的回答耗时 */
+let turnStartedAt: number | undefined;
+let lastTurnElapsedMs: number | undefined;
+let totalTurnElapsedMs = 0;
+let ticker: ReturnType<typeof setInterval> | undefined;
+let requestRender: (() => void) | undefined;
+
+/** 耗时前面的图标；用几何符号保证宽度固定为 1 列 */
+const ELAPSED_ICON = "◷";
+
+/** 把毫秒格式化成 12s / 1m05s / 1h02m05s */
+function formatElapsed(ms: number): string {
+	const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+	const hours = Math.floor(totalSeconds / 3600);
+	const minutes = Math.floor((totalSeconds % 3600) / 60);
+	const seconds = totalSeconds % 60;
+	if (hours > 0) {
+		return `${hours}h${String(minutes).padStart(2, "0")}m${String(seconds).padStart(2, "0")}s`;
+	}
+	if (minutes > 0) {
+		return `${minutes}m${String(seconds).padStart(2, "0")}s`;
+	}
+	return `${seconds}s`;
+}
+
+/** 当前要展示的耗时：执行中是开始至今，结束后是最后一次的数值 */
+function currentElapsed(turnActive: boolean): string | undefined {
+	if (turnActive && turnStartedAt !== undefined) {
+		return formatElapsed(Date.now() - turnStartedAt);
+	}
+	return turnActive || lastTurnElapsedMs === undefined ? undefined : formatElapsed(lastTurnElapsedMs);
+}
+
+/** 累计耗时包含正在执行的这一轮 */
+function currentTotal(turnActive: boolean): string | undefined {
+	if (turnStartedAt !== undefined) {
+		return formatElapsed(totalTurnElapsedMs + (Date.now() - turnStartedAt));
+	}
+	return turnActive || lastTurnElapsedMs === undefined ? undefined : formatElapsed(totalTurnElapsedMs);
+}
+
+function stopTicker(): void {
+	if (ticker !== undefined) {
+		clearInterval(ticker);
+		ticker = undefined;
+	}
+}
+
+/** 计时期间每秒让页脚重绘一次 */
+function startTicker(): void {
+	if (ticker !== undefined) {
+		return;
+	}
+	ticker = setInterval(() => requestRender?.(), 1000);
 }
 
 /** token 数量的紧凑写法 */
@@ -59,7 +116,13 @@ function singleLine(text: string): string {
 
 export default function (pi: ExtensionAPI) {
 	pi.on("session_start", (_event, ctx) => {
-		ctx.ui.setFooter((_tui, theme, footerData) => {
+		// 新会话从零开始，不沿用上一次会话的耗时
+		stopTicker();
+		turnStartedAt = undefined;
+		lastTurnElapsedMs = undefined;
+		totalTurnElapsedMs = 0;
+		ctx.ui.setFooter((tui, theme, footerData) => {
+			requestRender = () => tui.requestRender();
 			const empty: UsageTotals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 			let cachedKey = "";
 			let totals = empty;
@@ -111,6 +174,8 @@ export default function (pi: ExtensionAPI) {
 					const context = ctx.getContextUsage();
 					const contextWindow = context?.contextWindow ?? ctx.model?.contextWindow ?? 0;
 					const percent = context?.percent;
+					const elapsedText = currentElapsed(turnStartedAt !== undefined);
+					const totalText = currentTotal(turnStartedAt !== undefined);
 
 					const model = ctx.model?.id ?? "no-model";
 					const thinking = pi.getThinkingLevel();
@@ -132,10 +197,14 @@ export default function (pi: ExtensionAPI) {
 							? "warning"
 							: "dim";
 					const right = [
+						elapsedText === undefined ? undefined : theme.fg("dim", `${ELAPSED_ICON} ${elapsedText}`),
+						totalText !== undefined && totalText !== elapsedText ? theme.fg("dim", `total ${totalText}`) : undefined,
 						theme.fg("dim", `↑${formatTokens(usage.input)} ↓${formatTokens(usage.output)}`),
 						theme.fg("dim", `CH ${hitRate === undefined ? "-" : `${hitRate.toFixed(1)}%`}`),
 						theme.fg(percentColor, percentText),
-					].join("  ");
+					]
+						.filter((item): item is string => item !== undefined)
+						.join("  ");
 
 					const gap = 2;
 					// 左侧剩下少于这么多列时就整块让给右侧数据
@@ -164,5 +233,25 @@ export default function (pi: ExtensionAPI) {
 				},
 			};
 		});
+	});
+
+	// 从用户发送消息开始计时，agent 完全结束（含重试与自动压缩）时定格
+	pi.on("before_agent_start", () => {
+		turnStartedAt = Date.now();
+		startTicker();
+	});
+	pi.on("agent_settled", () => {
+		if (turnStartedAt === undefined) {
+			return;
+		}
+		lastTurnElapsedMs = Date.now() - turnStartedAt;
+		totalTurnElapsedMs += lastTurnElapsedMs;
+		turnStartedAt = undefined;
+		stopTicker();
+		requestRender?.();
+	});
+	pi.on("session_shutdown", () => {
+		stopTicker();
+		turnStartedAt = undefined;
 	});
 }
