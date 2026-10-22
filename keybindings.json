@@ -1,4 +1,3 @@
 {
-    "app.thinking.cycle": "ctl+shift",
-    "app.clipboard.pasteImage": []
+    "app.clipboard.pasteImage": "ctrl+v"
 }
