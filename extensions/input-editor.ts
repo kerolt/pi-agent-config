@@ -4,7 +4,7 @@
  * 去掉 Pi 默认的上下两条横线，改成整块带背景色的输入区域：上下各留一行同样背景色的空白，
  * 第一行行首是提示箭头，文字统一缩进箭头宽度，多行输入时输入区域随之变高。
  * 内容超出一屏时，滚动提示居中显示在留白行里。
- * 输入以 ! 开头进入 bash 模式时，提示箭头换成另一种颜色，配合被移除的横线提示当前模式。
+ * 输入以 ! 开头进入 bash 模式时，提示箭头换成 $ 符号，代替被移除的横线提示当前模式。
  */
 
 import { CustomEditor, type ExtensionAPI, type KeybindingsManager } from "@earendil-works/pi-coding-agent";
@@ -16,12 +16,10 @@ const EDITOR_BG = "toolPendingBg";
 /** 提示箭头占用的列数，同时也是输入文字的缩进 */
 const PROMPT_WIDTH = 2;
 
-/** 提示箭头字符与颜色 */
+/** 提示箭头字符与 bash 模式下替换的符号 */
 const PROMPT_GLYPH = "❯";
+const BASH_PROMPT_GLYPH = "$";
 const PROMPT_COLOR = "accent";
-
-/** bash 模式下提示箭头使用的颜色，主题里 bashMode 与 accent 相同时靠这个区分 */
-const BASH_PROMPT_COLOR = "warning";
 
 /** 输入区域上下各留的留白行数 */
 const PADDING_Y = 1;
@@ -94,7 +92,7 @@ export default function (pi: ExtensionAPI) {
 				if (paddingX > 0 && content.length > 0) {
 					const isBashMode = this.getText().trimStart().startsWith("!");
 					const prompt = truncateToWidth(
-						theme.fg(isBashMode ? BASH_PROMPT_COLOR : PROMPT_COLOR, PROMPT_GLYPH) + " ".repeat(PROMPT_WIDTH),
+						theme.fg(PROMPT_COLOR, isBashMode ? BASH_PROMPT_GLYPH : PROMPT_GLYPH) + " ".repeat(PROMPT_WIDTH),
 						paddingX,
 						"",
 						true,
