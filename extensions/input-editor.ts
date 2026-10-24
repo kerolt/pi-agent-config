@@ -4,10 +4,11 @@
  * 保留 Pi 默认的上下两条横线，不再铺灰色背景。第一行行首的缩进换成提示箭头，
  * 文字统一缩进箭头宽度，多行输入时输入区域随之变高。
  * 输入以 ! 开头进入 bash 模式时，箭头换成 $ 符号，提示当前会执行 shell 命令。
+ * 横线固定使用 accent 颜色，不随思考强度变化，字符换成加粗的横线样式。
  */
 
 import { CustomEditor, type ExtensionAPI, type KeybindingsManager } from "@earendil-works/pi-coding-agent";
-import { type EditorTheme, truncateToWidth, type TUI } from "@earendil-works/pi-tui";
+import { type EditorTheme, sliceByColumn, truncateToWidth, type TUI, visibleWidth } from "@earendil-works/pi-tui";
 
 /** 提示箭头占用的列数，同时也是输入文字的缩进 */
 const PROMPT_WIDTH = 2;
@@ -17,9 +18,33 @@ const PROMPT_GLYPH = "❯";
 const BASH_PROMPT_GLYPH = "$";
 const PROMPT_COLOR = "accent";
 
+/** 上下横线使用的加粗横线字符与颜色 */
+const BORDER_GLYPH = "━";
+const BORDER_COLOR = "accent";
+
 export default function (pi: ExtensionAPI) {
 	pi.on("session_start", (_event, ctx) => {
 		const theme = ctx.ui.theme;
+		const borderColor = (text: string) => theme.fg(BORDER_COLOR, text);
+
+		/** 与 Pi 自带的滚动提示排版一致，只把横线字符换成加粗样式 */
+		const scrollBorder = (direction: string, hiddenLineCount: number, width: number): string => {
+			const label = ` ${direction} ${hiddenLineCount} more `;
+			const labelWidth = visibleWidth(label);
+			if (labelWidth + 2 <= width) {
+				const leftWidth = Math.floor((width - labelWidth) / 2);
+				return (
+					BORDER_GLYPH.repeat(leftWidth) + label + BORDER_GLYPH.repeat(width - leftWidth - labelWidth)
+				);
+			}
+			const indicator = `${BORDER_GLYPH.repeat(3)} ${direction} ${hiddenLineCount} more `;
+			const remaining = width - visibleWidth(indicator);
+			if (remaining >= 0) {
+				return indicator + BORDER_GLYPH.repeat(remaining);
+			}
+			const ellipsis = "...".slice(0, width);
+			return sliceByColumn(indicator, 0, width - visibleWidth(ellipsis), true) + ellipsis;
+		};
 
 		class ArrowEditor extends CustomEditor {
 			constructor(tui: TUI, editorTheme: EditorTheme, keybindings: KeybindingsManager) {
@@ -29,6 +54,14 @@ export default function (pi: ExtensionAPI) {
 			/** 文字缩进固定为箭头宽度，主题设置不应改变它 */
 			setPaddingX(): void {
 				super.setPaddingX(PROMPT_WIDTH);
+			}
+
+			protected override renderTopBorder(width: number, hiddenLineCount: number): string {
+				return borderColor(hiddenLineCount > 0 ? scrollBorder("↑", hiddenLineCount, width) : BORDER_GLYPH.repeat(width));
+			}
+
+			protected override renderBottomBorder(width: number, hiddenLineCount: number): string {
+				return borderColor(hiddenLineCount > 0 ? scrollBorder("↓", hiddenLineCount, width) : BORDER_GLYPH.repeat(width));
 			}
 
 			render(width: number): string[] {
