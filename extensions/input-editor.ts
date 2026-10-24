@@ -57,11 +57,15 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			protected override renderTopBorder(width: number, hiddenLineCount: number): string {
-				return borderColor(hiddenLineCount > 0 ? scrollBorder("↑", hiddenLineCount, width) : BORDER_GLYPH.repeat(width));
+				return borderColor(this.borderLine(width, hiddenLineCount, "↑"));
 			}
 
 			protected override renderBottomBorder(width: number, hiddenLineCount: number): string {
-				return borderColor(hiddenLineCount > 0 ? scrollBorder("↓", hiddenLineCount, width) : BORDER_GLYPH.repeat(width));
+				return borderColor(this.borderLine(width, hiddenLineCount, "↓"));
+			}
+
+			private borderLine(width: number, hiddenLineCount: number, direction: string): string {
+				return hiddenLineCount > 0 ? scrollBorder(direction, hiddenLineCount, width) : BORDER_GLYPH.repeat(width);
 			}
 
 			render(width: number): string[] {
