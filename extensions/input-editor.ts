@@ -4,7 +4,7 @@
  * 保留 Pi 默认的上下两条横线，不再铺灰色背景。第一行行首的缩进换成提示箭头，
  * 文字统一缩进箭头宽度，多行输入时输入区域随之变高。
  * 输入以 ! 开头进入 bash 模式时，箭头换成 $ 符号，提示当前会执行 shell 命令。
- * 横线固定使用灰色，不随思考强度变化，字符换成加粗的横线样式。
+ * 横线固定使用灰色，不随思考强度变化。
  */
 
 import { CustomEditor, type ExtensionAPI, type KeybindingsManager } from "@earendil-works/pi-coding-agent";
@@ -18,8 +18,8 @@ const PROMPT_GLYPH = "❯";
 const BASH_PROMPT_GLYPH = "$";
 const PROMPT_COLOR = "muted";
 
-/** 上下横线使用的加粗横线字符与颜色 */
-const BORDER_GLYPH = "━";
+/** 上下横线使用的字符与颜色 */
+const BORDER_GLYPH = "─";
 const BORDER_COLOR = "muted";
 
 export default function (pi: ExtensionAPI) {
@@ -27,7 +27,7 @@ export default function (pi: ExtensionAPI) {
 		const theme = ctx.ui.theme;
 		const borderColor = (text: string) => theme.fg(BORDER_COLOR, text);
 
-		/** 与 Pi 自带的滚动提示排版一致，只把横线字符换成加粗样式 */
+		/** 与 Pi 自带的滚动提示排版一致，只替换横线字符与颜色 */
 		const scrollBorder = (direction: string, hiddenLineCount: number, width: number): string => {
 			const label = ` ${direction} ${hiddenLineCount} more `;
 			const labelWidth = visibleWidth(label);
