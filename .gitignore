@@ -33,9 +33,6 @@
 !skills
 !skills/
 !skills/**
-!keybindings.json
-!keybindings.json/
-!keybindings.json/**
 !pi-one-ui.json
 !pi-one-ui.json/
 !pi-one-ui.json/**
