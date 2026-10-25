@@ -32,7 +32,7 @@
     "enabled": true
   },
   "modelThinkingLevels": {
-    "opencode-go/deepseek-v4.1-flash": "max",
+    "opencode-go/deepseek-v4.1-flash": "high",
     "openai-codex/gpt-6-astra": "max"
   },
   "showCacheMissNotices": true,
