@@ -11,9 +11,9 @@ import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { keyHint } from "@earendil-works/pi-coding-agent";
 import type { TuiMouseEvent } from "@earendil-works/pi-tui";
 import { stripTerminalSequences, truncateToWidth } from "@earendil-works/pi-tui";
-import { attach, detach, parentOf, patchChatTree, setChildAddedHook, setChildRemovedHook, sharedObject } from "./lib/chat-tree.ts";
-import type { ChatContainer } from "./lib/chat-tree.ts";
-import { loadBundle } from "./lib/pi-bundle.ts";
+import { attach, detach, parentOf, patchChatTree, setChildAddedHook, setChildRemovedHook, sharedObject } from "./chat-tree.ts";
+import type { ChatContainer } from "./chat-tree.ts";
+import { loadBundle } from "../lib/pi-bundle.ts";
 
 /** 分支符号占的列数，工具行自己左侧还有一格缩进 */
 const PREFIX_WIDTH = 2;

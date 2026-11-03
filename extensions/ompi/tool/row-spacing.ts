@@ -12,8 +12,8 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { TuiMouseEvent } from "@earendil-works/pi-tui";
-import { patchChatTree, previousSiblingOf } from "./lib/chat-tree.ts";
-import { loadBundle } from "./lib/pi-bundle.ts";
+import { patchChatTree, previousSiblingOf } from "./chat-tree.ts";
+import { loadBundle } from "../lib/pi-bundle.ts";
 
 /** 打补丁的标记，避免重复包装同一批方法 */
 const TOOL_ROW_FLAG = Symbol.for("pi.tool-row-spacing");

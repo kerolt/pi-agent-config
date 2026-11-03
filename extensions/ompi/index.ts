@@ -9,15 +9,11 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import inputEditor from "./input-editor.ts";
 import minimalFooter from "./minimal-footer.ts";
 import todoPanelFold from "./todo-panel-fold.ts";
-import toolGrouping from "./tool-grouping.ts";
-import toolOutputLimit from "./tool-output-limit.ts";
-import toolRowSpacing from "./tool-row-spacing.ts";
+import tool from "./tool/index.ts";
 
 export default function (pi: ExtensionAPI) {
   inputEditor(pi);
   minimalFooter(pi);
-  toolOutputLimit(pi);
-  toolRowSpacing(pi);
-  toolGrouping(pi);
+  tool(pi);
   todoPanelFold(pi);
 }
