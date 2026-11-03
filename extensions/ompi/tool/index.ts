@@ -13,5 +13,5 @@ import rowSpacing from "./row-spacing.ts";
 export default function (pi: ExtensionAPI) {
   outputLimit(pi);
   // rowSpacing(pi);
-  grouping(pi);
+  // grouping(pi);
 }
