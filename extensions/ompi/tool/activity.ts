@@ -8,8 +8,8 @@
  * 工具行靠 ToolExecutionComponent.render 返回空数组收起；思考块靠 AssistantMessageComponent
  * 的隐藏开关加空标签收起，并在 updateContent 上补一层，Pi 自己切换思考可见性时不会翻回来。
  *
- * 回合边界：`agent_end` 收尾当前回合；重新载入会话时 replay 没有事件，遇到新的用户消息
- * 就收尾上一轮，最后那一轮保持展开，直到下一次交互。
+ * 回合边界：`agent_end` 收尾当前回合；重新载入会话时 replay 没有事件，回放结束后补一次收尾，
+ * 所以最近一轮也是折叠的，下一次交互前就位。
  *
  * /tool-activity 命令与 ctrl+shift+o 快捷键把所有汇总行整体展开或收起。
  */
@@ -419,7 +419,8 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_start", async (event) => {
 		const state = turnState();
 		// reload 不重建 transcript，进行中的回合也不打断
-		if (event.reason !== "reload") {
+		const replay = event.reason !== "reload";
+		if (replay) {
 			state.turns.clear();
 			state.components = [];
 			state.container = undefined;
@@ -438,5 +439,12 @@ export default function (pi: ExtensionAPI) {
 		patchToolRender(toolClass);
 		patchAssistantRender(assistantClass);
 		patchAddChild(containerClassOf(toolClass));
+
+		// 回放是同步的，等它跑完再把最后一轮也收起来
+		if (replay) {
+			setTimeout(() => {
+				finalizeTurn();
+			}, 0);
+		}
 	});
 }
