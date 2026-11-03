@@ -1,28 +1,34 @@
 /**
- * 按回合隐藏工具执行与模型思考。
+ * 回合结束后把工具执行与思考收成一块汇总行。
  *
- * 一轮对话进行中，工具行与思考块照常显示，能看到执行情况；这一轮结束（agent_end）后，
- * 只把本轮加入的工具行与思考块收起来，历史回合保持各自的状态，最终回复的正文留在
- * transcript 里。重新载入会话时 replay 出来的内容都属于已结束的回合，一并收起。
+ * 一轮对话进行中，工具行与思考块照常显示；这一轮结束时把本轮的工具行与思考收起来，
+ * 在原位插入一行汇总，例如 `▸ 3 次工具调用 · 2 段思考`。点击汇总行就地展开整轮内容，
+ * 再点收起；展开后单条工具行仍然可以点击看自己的输出。
  *
- * 工具行靠 ToolExecutionComponent.render 返回空数组隐藏；思考块靠 AssistantMessageComponent
- * 的隐藏开关加空标签隐藏，并在 updateContent 上补一层，Pi 自己切换思考可见性时也不会把它翻回来。
+ * 工具行靠 ToolExecutionComponent.render 返回空数组收起；思考块靠 AssistantMessageComponent
+ * 的隐藏开关加空标签收起，并在 updateContent 上补一层，Pi 自己切换思考可见性时不会翻回来。
  *
- * /tool-activity 命令与 ctrl+shift+o 快捷键把当前 transcript 里的工具行与思考整体翻一次，
- * 只影响已经登记过的组件，不改变后续回合的自动隐藏。
+ * 回合边界：`agent_end` 收尾当前回合；重新载入会话时 replay 没有事件，遇到新的用户消息
+ * 就收尾上一轮，最后那一轮保持展开，直到下一次交互。
+ *
+ * /tool-activity 命令与 ctrl+shift+o 快捷键把所有汇总行整体展开或收起。
  */
 
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { Key } from "@earendil-works/pi-tui";
+import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import type { TuiMouseEvent } from "@earendil-works/pi-tui";
+import { Key, truncateToWidth } from "@earendil-works/pi-tui";
 import { loadBundle } from "../lib/pi-bundle.ts";
 
 /** 打补丁的标记，避免重复包装同一批方法 */
-const TOOL_PATCH_FLAG = Symbol.for("pi.ompi.turn-visibility.tool");
-const ASSISTANT_PATCH_FLAG = Symbol.for("pi.ompi.turn-visibility.assistant");
-const CONTAINER_PATCH_FLAG = Symbol.for("pi.ompi.turn-visibility.container");
+const TOOL_PATCH_FLAG = Symbol.for("pi.ompi.turn-summary.tool");
+const ASSISTANT_PATCH_FLAG = Symbol.for("pi.ompi.turn-summary.assistant");
+const CONTAINER_PATCH_FLAG = Symbol.for("pi.ompi.turn-summary.container");
 
 /** 跨扩展重新加载共享的状态：原型上的补丁还在，记录不能留在旧模块里 */
-const STATE_KEY = Symbol.for("pi.ompi.turn-visibility");
+const STATE_KEY = Symbol.for("pi.ompi.turn-summary");
+
+/** Pi 把当前主题放在这个全局符号下，汇总行不经过渲染器回调，只能从这里取色 */
+const THEME_KEY = Symbol.for("@earendil-works/pi-coding-agent:theme");
 
 type ToolRow = { render: (width: number) => string[] };
 
@@ -31,9 +37,12 @@ type ToolRowClass = {
 	prototype: ToolRow & { [TOOL_PATCH_FLAG]?: boolean };
 };
 
+type MessagePart = { type: string; thinking?: string };
+
 type AssistantRow = {
 	hideThinkingBlock: boolean;
 	hiddenThinkingLabel: string;
+	lastMessage?: { content?: MessagePart[] };
 	setHideThinkingBlock: (hide: boolean) => void;
 	updateContent: (message: unknown, isStreaming?: boolean) => void;
 };
@@ -43,108 +52,242 @@ type AssistantClass = {
 	prototype: AssistantRow & { [ASSISTANT_PATCH_FLAG]?: boolean };
 };
 
+type UserRowClass = { new (...args: unknown[]): object };
+
+type ContainerLike = { children: unknown[] };
+
 type ContainerClass = {
-	prototype: {
-		addChild: (this: { children: unknown[] }, child: unknown) => void;
+	prototype: ContainerLike & {
+		addChild: (this: ContainerLike, child: unknown) => void;
 		[CONTAINER_PATCH_FLAG]?: boolean;
 	};
 };
 
-type HideState = {
+/** 插进 transcript 的汇总行 */
+type SummaryComponent = {
+	render: (width: number) => string[];
+	invalidate: () => void;
+	handleMouse: (event: TuiMouseEvent) => unknown;
+};
+
+/** 一个已经收尾的回合 */
+type Turn = {
+	container: ContainerLike;
+	summary: SummaryComponent;
+	components: object[];
+	toolCount: number;
+	thinkingCount: number;
+	expanded: boolean;
+};
+
+type TurnState = {
 	toolClass: ToolRowClass | undefined;
 	assistantClass: AssistantClass | undefined;
-	/** 当前是否处在一轮对话中 */
-	turnActive: boolean;
-	/** 本轮加入的组件，回合结束时统一收起 */
-	currentTurn: Set<object>;
-	/** transcript 里登记过的组件，手动切换时整体重设 */
-	tracked: Set<object>;
+	userClass: UserRowClass | undefined;
+	/** 当前这一轮挂在哪个容器、加了哪些组件 */
+	container: ContainerLike | undefined;
+	components: object[];
+	/** transcript 里所有已收尾的回合 */
+	turns: Set<Turn>;
 	/** 已经收起的工具行 */
 	hiddenTools: WeakSet<object>;
 	/** 已经收起思考的助手消息 */
 	hiddenThinking: WeakSet<object>;
 };
 
-function hideState(): HideState {
-	const existing = (globalThis as Record<symbol, HideState | undefined>)[STATE_KEY];
+function turnState(): TurnState {
+	const existing = (globalThis as Record<symbol, TurnState | undefined>)[STATE_KEY];
 	if (existing !== undefined) {
 		return existing;
 	}
-	const created: HideState = {
+	const created: TurnState = {
 		toolClass: undefined,
 		assistantClass: undefined,
-		turnActive: false,
-		currentTurn: new Set(),
-		tracked: new Set(),
+		userClass: undefined,
+		container: undefined,
+		components: [],
+		turns: new Set(),
 		hiddenTools: new WeakSet(),
 		hiddenThinking: new WeakSet(),
 	};
-	(globalThis as Record<symbol, HideState | undefined>)[STATE_KEY] = created;
+	(globalThis as Record<symbol, TurnState | undefined>)[STATE_KEY] = created;
 	return created;
 }
 
-/** 收起一个工具行 */
+function currentTheme(): Theme {
+	const theme = (globalThis as Record<symbol, Theme | undefined>)[THEME_KEY];
+	if (theme === undefined) {
+		throw new Error("主题尚未初始化，汇总行无法取色");
+	}
+	return theme;
+}
+
 function hideTool(tool: object): void {
-	hideState().hiddenTools.add(tool);
+	turnState().hiddenTools.add(tool);
+}
+
+function showTool(tool: object): void {
+	turnState().hiddenTools.delete(tool);
 }
 
 /** 收起一条助手消息里的思考块，空标签让折叠后的思考连占位都不留 */
 function hideThinking(message: AssistantRow): void {
-	hideState().hiddenThinking.add(message);
+	turnState().hiddenThinking.add(message);
 	message.setHideThinkingBlock(true);
 }
 
-function isHidden(component: object): boolean {
-	const state = hideState();
-	return state.hiddenTools.has(component) || state.hiddenThinking.has(component);
+/** 展开思考：交回 Pi 自己的可见性设置，这里只负责显示内容 */
+function showThinking(message: AssistantRow): void {
+	turnState().hiddenThinking.delete(message);
+	message.setHideThinkingBlock(false);
 }
 
-function hideComponent(component: object): void {
-	const state = hideState();
-	if (state.toolClass !== undefined && component instanceof state.toolClass) {
-		hideTool(component);
+/** 一条消息里连续的思考块算一段 */
+function thinkingRunCount(message: AssistantRow): number {
+	let count = 0;
+	let inRun = false;
+	for (const part of message.lastMessage?.content ?? []) {
+		if (part.type === "thinking" && (part.thinking ?? "").trim() !== "") {
+			if (!inRun) {
+				count++;
+				inRun = true;
+			}
+			continue;
+		}
+		inRun = false;
+	}
+	return count;
+}
+
+function setTurnExpanded(turn: Turn, expanded: boolean): void {
+	if (turn.expanded === expanded) {
 		return;
 	}
-	if (state.assistantClass !== undefined && component instanceof state.assistantClass) {
-		hideThinking(component);
-	}
-}
-
-/** 收起 transcript 里已经登记过的全部组件 */
-function hideTracked(): void {
-	for (const component of hideState().tracked) {
-		hideComponent(component);
-	}
-}
-
-/** 重新显示全部组件，思考块交回 Pi 自己的可见性设置 */
-function showTracked(): void {
-	const state = hideState();
-	state.hiddenTools = new WeakSet();
-	state.hiddenThinking = new WeakSet();
-	for (const component of state.tracked) {
+	turn.expanded = expanded;
+	const state = turnState();
+	for (const component of turn.components) {
+		if (state.toolClass !== undefined && component instanceof state.toolClass) {
+			if (expanded) {
+				showTool(component);
+			} else {
+				hideTool(component);
+			}
+			continue;
+		}
 		if (state.assistantClass !== undefined && component instanceof state.assistantClass) {
-			component.setHideThinkingBlock(false);
+			if (expanded) {
+				showThinking(component);
+			} else {
+				hideThinking(component);
+			}
+		}
+	}
+	turn.summary.invalidate();
+}
+
+/** 汇总行：一行标记加计数，点击整轮展开或收起 */
+function createSummary(turn: Turn): SummaryComponent {
+	return {
+		render(width: number): string[] {
+			const theme = currentTheme();
+			const parts: string[] = [];
+			if (turn.toolCount > 0) {
+				parts.push(`${turn.toolCount} 次工具调用`);
+			}
+			if (turn.thinkingCount > 0) {
+				parts.push(`${turn.thinkingCount} 段思考`);
+			}
+			const marker = theme.fg("accent", turn.expanded ? "▾" : "▸");
+			const text = theme.fg("muted", parts.join(theme.fg("dim", " · ")));
+			return ["", truncateToWidth(` ${marker} ${text}`, width, "...")];
+		},
+		invalidate(): void {},
+		handleMouse(event: TuiMouseEvent): unknown {
+			if (event.type !== "click" || event.button !== "left") {
+				return undefined;
+			}
+			setTurnExpanded(turn, !turn.expanded);
+			return { handled: true };
+		},
+	};
+}
+
+/** 收尾当前回合：插入汇总行，把本轮的组件收起来 */
+function finalizeTurn(): void {
+	const state = turnState();
+	const components = state.components;
+	const container = state.container;
+	state.components = [];
+	state.container = undefined;
+	if (container === undefined || components.length === 0) {
+		return;
+	}
+
+	const tools: ToolRow[] = [];
+	const assistants: AssistantRow[] = [];
+	for (const component of components) {
+		if (state.toolClass !== undefined && component instanceof state.toolClass) {
+			tools.push(component);
+			continue;
+		}
+		if (state.assistantClass !== undefined && component instanceof state.assistantClass) {
+			assistants.push(component);
+		}
+	}
+	if (tools.length === 0 && assistants.length === 0) {
+		return;
+	}
+	const thinkingCount = assistants.reduce((sum, assistant) => sum + thinkingRunCount(assistant), 0);
+	// 既没工具调用也没思考的回合（例如直接报错）没有可收起的东西
+	if (tools.length === 0 && thinkingCount === 0) {
+		return;
+	}
+
+	// 汇总行放在第一个工具行原来的位置；没有工具行时放在最后一条助手消息前面
+	const anchor = tools[0] ?? assistants[assistants.length - 1];
+	const index = anchor === undefined ? -1 : container.children.indexOf(anchor);
+	if (index < 0) {
+		return;
+	}
+
+	const turn: Turn = {
+		container,
+		summary: undefined as unknown as SummaryComponent,
+		components,
+		toolCount: tools.length,
+		thinkingCount,
+		expanded: false,
+	};
+	turn.summary = createSummary(turn);
+	container.children.splice(index, 0, turn.summary);
+	state.turns.add(turn);
+
+	for (const component of components) {
+		if (state.toolClass !== undefined && component instanceof state.toolClass) {
+			hideTool(component);
+			continue;
+		}
+		if (state.assistantClass !== undefined && component instanceof state.assistantClass) {
+			hideThinking(component);
 		}
 	}
 }
 
-/** 登记新加入的组件：回合进行中先留着，回合结束后才收起 */
-function record(component: unknown): void {
-	const state = hideState();
+/** 登记新加入的组件；遇到用户消息说明上一轮结束了 */
+function record(parent: ContainerLike, child: unknown): void {
+	const state = turnState();
 	if (state.toolClass === undefined || state.assistantClass === undefined) {
 		return;
 	}
-	if (!(component instanceof state.toolClass) && !(component instanceof state.assistantClass)) {
+	if (state.userClass !== undefined && child instanceof state.userClass) {
+		finalizeTurn();
 		return;
 	}
-	const tracked = component as object;
-	state.tracked.add(tracked);
-	if (state.turnActive) {
-		state.currentTurn.add(tracked);
+	if (!(child instanceof state.toolClass) && !(child instanceof state.assistantClass)) {
 		return;
 	}
-	hideComponent(tracked);
+	state.container = parent;
+	state.components.push(child as object);
 }
 
 function patchToolRender(component: ToolRowClass): void {
@@ -155,7 +298,7 @@ function patchToolRender(component: ToolRowClass): void {
 	const originalRender = prototype.render;
 
 	const patchedRender = function (this: ToolRow, width: number): string[] {
-		return hideState().hiddenTools.has(this) ? [] : originalRender.call(this, width);
+		return turnState().hiddenTools.has(this) ? [] : originalRender.call(this, width);
 	};
 
 	Object.defineProperty(patchedRender, TOOL_PATCH_FLAG, { value: true });
@@ -170,7 +313,7 @@ function patchAssistantRender(component: AssistantClass): void {
 	const originalUpdateContent = prototype.updateContent;
 
 	const patchedUpdateContent = function (this: AssistantRow, message: unknown, isStreaming?: boolean): void {
-		if (hideState().hiddenThinking.has(this)) {
+		if (turnState().hiddenThinking.has(this)) {
 			this.hideThinkingBlock = true;
 			this.hiddenThinkingLabel = "";
 		}
@@ -200,81 +343,80 @@ function patchAddChild(component: ContainerClass): void {
 	}
 	const originalAddChild = prototype.addChild;
 
-	const patchedAddChild = function (this: { children: unknown[] }, child: unknown): void {
+	const patchedAddChild = function (this: ContainerLike, child: unknown): void {
 		originalAddChild.call(this, child);
-		record(child);
+		record(this, child);
 	};
 
 	Object.defineProperty(patchedAddChild, CONTAINER_PATCH_FLAG, { value: true });
 	prototype.addChild = patchedAddChild;
 }
 
-function toggleToolActivity(ctx: ExtensionContext): void {
-	const state = hideState();
-	const anythingVisible = [...state.tracked].some((component) => !isHidden(component));
-	if (anythingVisible) {
-		hideTracked();
-	} else {
-		showTracked();
+/** 把所有汇总行整体展开或收起 */
+function toggleAllTurns(ctx: ExtensionContext): void {
+	const state = turnState();
+	const anyCollapsed = [...state.turns].some((turn) => !turn.expanded);
+	for (const turn of state.turns) {
+		setTurnExpanded(turn, anyCollapsed);
 	}
-	ctx.ui.notify(`Tool activity: ${anythingVisible ? "hidden" : "visible"}`);
+	ctx.ui.notify(`Tool activity: ${anyCollapsed ? "visible" : "hidden"}`);
 }
 
 export default function (pi: ExtensionAPI) {
 	pi.registerCommand("tool-activity", {
-		description: "收起或显示工具执行与思考",
+		description: "展开或收起所有回合的工具执行与思考",
 		handler: async (_args, ctx) => {
-			toggleToolActivity(ctx);
+			toggleAllTurns(ctx);
 		},
 	});
 
 	pi.registerShortcut(Key.ctrlShift("o"), {
-		description: "收起或显示工具执行与思考",
+		description: "展开或收起所有回合的工具执行与思考",
 		handler: (ctx) => {
-			toggleToolActivity(ctx);
+			toggleAllTurns(ctx);
 		},
 	});
 
-	// 一轮开始时放开，结束后只收起这一轮加入的组件。子代理的会话也走这套事件，
-	// 只有交互会话才动这个状态，否则子代理收尾会把主会话的内容提前收起来。
+	// 子代理的会话也走这套事件，只有交互会话才动这个状态
 	pi.on("agent_start", (_event, ctx) => {
-		if (ctx.mode !== "tui") {
-			return;
+		if (ctx.mode === "tui") {
+			finalizeTurn();
 		}
-		const state = hideState();
-		state.turnActive = true;
-		state.currentTurn.clear();
 	});
 
 	pi.on("agent_end", (_event, ctx) => {
-		if (ctx.mode !== "tui") {
-			return;
+		if (ctx.mode === "tui") {
+			finalizeTurn();
 		}
-		const state = hideState();
-		state.turnActive = false;
-		for (const component of state.currentTurn) {
-			hideComponent(component);
-		}
-		state.currentTurn.clear();
+	});
+
+	// 压缩会清空 transcript 并重新回放，旧回合的汇总行跟着一起没了
+	pi.on("session_compact", () => {
+		const state = turnState();
+		state.turns.clear();
+		state.components = [];
+		state.container = undefined;
 	});
 
 	pi.on("session_start", async (event) => {
-		const state = hideState();
-		state.turnActive = false;
-		state.currentTurn.clear();
-		// reload 不重建 transcript，登记过的组件原样保留；其余情况全是新组件
+		const state = turnState();
+		// reload 不重建 transcript，进行中的回合也不打断
 		if (event.reason !== "reload") {
-			state.tracked.clear();
+			state.turns.clear();
+			state.components = [];
+			state.container = undefined;
 		}
 
 		const bundle = await loadBundle();
 		const toolClass = bundle.ToolExecutionComponent as ToolRowClass | undefined;
 		const assistantClass = bundle.AssistantMessageComponent as AssistantClass | undefined;
-		if (!toolClass || !assistantClass) {
-			throw new Error("打包入口里没有 ToolExecutionComponent 或 AssistantMessageComponent，无法收起工具执行与思考");
+		const userClass = bundle.UserMessageComponent as UserRowClass | undefined;
+		if (!toolClass || !assistantClass || !userClass) {
+			throw new Error("打包入口里缺少 ToolExecutionComponent、AssistantMessageComponent 或 UserMessageComponent");
 		}
 		state.toolClass = toolClass;
 		state.assistantClass = assistantClass;
+		state.userClass = userClass;
 		patchToolRender(toolClass);
 		patchAssistantRender(assistantClass);
 		patchAddChild(containerClassOf(toolClass));
