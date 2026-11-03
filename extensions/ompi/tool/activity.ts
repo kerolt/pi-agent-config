@@ -265,8 +265,9 @@ function finalizeTurn(): void {
 		return;
 	}
 
-	// 汇总行放在第一个工具行原来的位置；没有工具行时放在最后一条助手消息前面
-	const anchor = tools[0] ?? assistants[assistants.length - 1];
+	// 汇总行放在本轮第一个组件原来的位置：展开后思考标签、正文、工具行都排在它下面，
+	// 不会出现思考露在汇总行上方的情况
+	const anchor = components.find((component) => container.children.indexOf(component) >= 0);
 	const index = anchor === undefined ? -1 : container.children.indexOf(anchor);
 	if (index < 0) {
 		return;
