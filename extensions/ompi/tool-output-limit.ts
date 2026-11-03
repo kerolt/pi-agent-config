@@ -89,6 +89,8 @@ interface CallRenderState {
 	innerResult?: Component;
 	/** 工具自己的渲染器使用的状态，与调用行的计时分开 */
 	inner?: Record<string, unknown>;
+	/** 工具行在分组卡里，耗时与展开提示交给分组头部展示 */
+	grouped?: boolean;
 }
 
 /** 本扩展的渲染上下文，state 换成自己的类型 */
@@ -540,14 +542,17 @@ function createUniformRenderers(toolName: string, base: ToolRenderers | undefine
 
 			const hidden = hiddenLineCount(context, inner);
 			const parts: string[] = [];
-			const duration = durationText(context);
-			if (duration !== undefined) {
-				parts.push(duration);
+			// 分组卡由头部统一展示耗时与展开提示，组内工具行不再重复
+			if (!context.state.grouped) {
+				const duration = durationText(context);
+				if (duration !== undefined) {
+					parts.push(duration);
+				}
+				if (!options.expanded && hidden > 0) {
+					parts.push(lineLabel(hidden));
+				}
 			}
-			if (!options.expanded && hidden > 0) {
-				parts.push(lineLabel(hidden));
-			}
-			setCallSuffix(context, formatSuffix(parts, !options.expanded && hidden > 0, theme));
+			setCallSuffix(context, formatSuffix(parts, !context.state.grouped && !options.expanded && hidden > 0, theme));
 
 			if (!options.expanded) {
 				return new Container();

@@ -3,17 +3,20 @@
  *
  * Pi 的 ToolExecutionComponent 在 renderShell 为 self 时会在正文前固定插入一行空行，
  * 工具连续执行时每行都要多占一行；鼠标命中又是按这一行偏移计算的。这里让一组连续
- * 工具行只有第一行保留空行，后面的行去掉：渲染时看前一个同级组件是不是工具行，
+ * 工具行只有第一行保留空行，后面的行去掉。
+ *
+ * 判断依据是工具行前面最近的一段可见内容：渲染不出任何行的助手消息（这一轮没有正文、
+ * 思考块又被折叠起来）不算内容，继续往前找；找到工具行就去掉空行，找到别的内容就保留。
  * 命中判定跟着按实际行位置计算。
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { TuiMouseEvent } from "@earendil-works/pi-tui";
+import { patchChatTree, previousSiblingOf } from "./lib/chat-tree.ts";
 import { loadBundle } from "./lib/pi-bundle.ts";
 
 /** 打补丁的标记，避免重复包装同一批方法 */
 const TOOL_ROW_FLAG = Symbol.for("pi.tool-row-spacing");
-const ADD_CHILD_FLAG = Symbol.for("pi.tool-row-spacing.add-child");
 
 /** 只用到 ToolExecutionComponent 里与 self 外壳有关的部分 */
 type ToolRowInstance = {
@@ -35,45 +38,31 @@ type ToolRowClass = {
 	};
 };
 
-/** 容器里每个子组件加入时记下的前一个同级组件 */
-const previousSiblings = new WeakMap<object, unknown>();
+/** 只用到 AssistantMessageComponent 里判断有没有可见内容的部分 */
+type AssistantRowClass = {
+	new (...args: unknown[]): { contentContainer?: { children?: unknown[] } };
+};
 
-/** 找到 Container 原型：addChild 的归属者，所有容器都从它继承 */
-function containerPrototypeOf(toolRow: ToolRowClass): { addChild: (child: unknown) => void } {
-	let prototype = Object.getPrototypeOf(toolRow.prototype) as { addChild?: (child: unknown) => void } | null;
-	while (prototype !== null && !Object.prototype.hasOwnProperty.call(prototype, "addChild")) {
-		prototype = Object.getPrototypeOf(prototype) as { addChild?: (child: unknown) => void } | null;
-	}
-	if (prototype === null) {
-		throw new Error("ToolExecutionComponent 的继承链里没有 addChild，无法判断工具行的先后");
-	}
-	return prototype as { addChild: (child: unknown) => void };
+/** 助手消息没有可见内容：正文为空，思考块又被折叠起来 */
+function rendersNothing(value: InstanceType<AssistantRowClass>): boolean {
+	const children = value.contentContainer?.children;
+	return Array.isArray(children) && children.length === 0;
 }
 
-/** 工具行加入容器时记下前一个同级组件，渲染时用它判断空行是否保留 */
-function patchAddChild(toolRow: ToolRowClass): void {
-	const prototype = containerPrototypeOf(toolRow) as {
-		addChild: (this: { children: unknown[] }, child: unknown) => void;
-		[ADD_CHILD_FLAG]?: boolean;
-	};
-	if (prototype[ADD_CHILD_FLAG]) {
-		return;
+/**
+ * 往前找到第一段能看见的内容。渲染不出任何行的助手消息跳过，
+ * 它们夹在工具行之间时不该把工具行分成两组。
+ */
+function previousVisibleNode(node: object, assistant: AssistantRowClass): unknown {
+	let previous = previousSiblingOf(node);
+	while (previous instanceof assistant && rendersNothing(previous)) {
+		previous = previousSiblingOf(previous as object);
 	}
-	const originalAddChild = prototype.addChild;
-
-	const patchedAddChild = function (this: { children: unknown[] }, child: unknown): void {
-		originalAddChild.call(this, child);
-		if (child instanceof toolRow) {
-			previousSiblings.set(child as object, this.children[this.children.length - 2]);
-		}
-	};
-
-	Object.defineProperty(patchedAddChild, ADD_CHILD_FLAG, { value: true });
-	prototype.addChild = patchedAddChild;
+	return previous;
 }
 
 /** 一组连续工具行里只有第一行保留行首空行，鼠标命中从正文第一行开始算 */
-function patchToolRows(component: ToolRowClass): void {
+function patchToolRows(component: ToolRowClass, assistant: AssistantRowClass): void {
 	if ((component.prototype.render as { [TOOL_ROW_FLAG]?: boolean })[TOOL_ROW_FLAG]) {
 		return;
 	}
@@ -88,7 +77,7 @@ function patchToolRows(component: ToolRowClass): void {
 		if (lines.length <= 1 || lines[0] !== "" || this.getRenderShell() !== "self") {
 			return lines;
 		}
-		if (previousSiblings.get(this) instanceof component) {
+		if (previousVisibleNode(this, assistant) instanceof component) {
 			return lines.slice(1);
 		}
 		this.leadingBlank = true;
@@ -115,10 +104,11 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_start", async () => {
 		const bundle = await loadBundle();
 		const component = bundle.ToolExecutionComponent as ToolRowClass | undefined;
-		if (!component) {
-			throw new Error("打包入口里没有 ToolExecutionComponent，工具行间距保持默认");
+		const assistant = bundle.AssistantMessageComponent as AssistantRowClass | undefined;
+		if (!component || !assistant) {
+			throw new Error("打包入口里没有 ToolExecutionComponent 或 AssistantMessageComponent，工具行间距保持默认");
 		}
-		patchAddChild(component);
-		patchToolRows(component);
+		patchChatTree(component);
+		patchToolRows(component, assistant);
 	});
 }
