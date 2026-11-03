@@ -43,7 +43,10 @@ type AssistantRow = {
 	hideThinkingBlock: boolean;
 	hiddenThinkingLabel: string;
 	lastMessage?: { content?: MessagePart[] };
+	/** 逐段思考的临时可见性，Pi 点击思考块时写入 */
+	thinkingVisibilityOverrides?: Map<number, boolean>;
 	setHideThinkingBlock: (hide: boolean) => void;
+	setHiddenThinkingLabel: (label: string) => void;
 	updateContent: (message: unknown, isStreaming?: boolean) => void;
 };
 
@@ -93,6 +96,8 @@ type TurnState = {
 	hiddenTools: WeakSet<object>;
 	/** 已经收起思考的助手消息 */
 	hiddenThinking: WeakSet<object>;
+	/** 每条助手消息原来的思考标签，展开时还原 */
+	labels: WeakMap<object, string>;
 };
 
 function turnState(): TurnState {
@@ -109,6 +114,7 @@ function turnState(): TurnState {
 		turns: new Set(),
 		hiddenTools: new WeakSet(),
 		hiddenThinking: new WeakSet(),
+		labels: new WeakMap(),
 	};
 	(globalThis as Record<symbol, TurnState | undefined>)[STATE_KEY] = created;
 	return created;
@@ -130,16 +136,26 @@ function showTool(tool: object): void {
 	turnState().hiddenTools.delete(tool);
 }
 
-/** 收起一条助手消息里的思考块，空标签让折叠后的思考连占位都不留 */
+/** 收起一条助手消息里的思考块：空标签让它连占位都不留 */
 function hideThinking(message: AssistantRow): void {
-	turnState().hiddenThinking.add(message);
+	const state = turnState();
+	state.hiddenThinking.add(message);
+	// 记住 Pi 配的标签，展开时还原
+	if (!state.labels.has(message)) {
+		state.labels.set(message, message.hiddenThinkingLabel);
+	}
 	message.setHideThinkingBlock(true);
 }
 
-/** 展开思考：交回 Pi 自己的可见性设置，这里只负责显示内容 */
+/** 展开思考：只露出 Pi 的标签，点标签才看具体内容 */
 function showThinking(message: AssistantRow): void {
-	turnState().hiddenThinking.delete(message);
-	message.setHideThinkingBlock(false);
+	const state = turnState();
+	state.hiddenThinking.delete(message);
+	const label = state.labels.get(message);
+	if (label !== undefined) {
+		message.setHiddenThinkingLabel(label);
+	}
+	message.setHideThinkingBlock(true);
 }
 
 /** 一条消息里连续的思考块算一段 */
@@ -316,6 +332,8 @@ function patchAssistantRender(component: AssistantClass): void {
 		if (turnState().hiddenThinking.has(this)) {
 			this.hideThinkingBlock = true;
 			this.hiddenThinkingLabel = "";
+			// 清掉 Pi 记录的逐段可见性，否则之前点开过的那一段会漏出来
+			this.thinkingVisibilityOverrides?.clear();
 		}
 		originalUpdateContent.call(this, message, isStreaming);
 	};
