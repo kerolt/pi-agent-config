@@ -95,8 +95,11 @@ export default function (pi: ExtensionAPI) {
 		}
 	});
 
-	pi.on("session_start", async () => {
-		setHidden(false);
+	pi.on("session_start", async (event) => {
+		// reload 不重建 transcript，工具行保持重新加载前的状态
+		if (event.reason !== "reload") {
+			setHidden(false);
+		}
 		const bundle = await loadBundle();
 		const component = bundle.ToolExecutionComponent as ToolRowClass | undefined;
 		if (!component) {
