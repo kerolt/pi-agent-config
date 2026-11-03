@@ -11,7 +11,7 @@ import outputLimit from "./output-limit.ts";
 import rowSpacing from "./row-spacing.ts";
 
 export default function (pi: ExtensionAPI) {
-	outputLimit(pi);
-	rowSpacing(pi);
-	grouping(pi);
+  outputLimit(pi);
+  // rowSpacing(pi);
+  grouping(pi);
 }
