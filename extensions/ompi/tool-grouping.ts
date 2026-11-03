@@ -61,7 +61,6 @@ type ContainerComponent = ChatContainer & {
 /** 分组是否已经装好，重复的 session_start 不再重复安装 */
 let installed = false;
 
-
 function currentTheme(): Theme {
 	const theme = (globalThis as Record<symbol, Theme | undefined>)[THEME_KEY];
 	if (theme === undefined) {
@@ -72,11 +71,6 @@ function currentTheme(): Theme {
 
 function isBlank(line: string | undefined): boolean {
 	return line === undefined || stripTerminalSequences(line).trim() === "";
-}
-
-/** 渲染结果里没有任何文字，只有空白与控制序列 */
-function rendersNothing(lines: string[]): boolean {
-	return lines.every((line) => stripTerminalSequences(line).trim() === "");
 }
 
 /** 工具名的显示形式：bash -> Bash，ask_user_question -> Ask User Question */
