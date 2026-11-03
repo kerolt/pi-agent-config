@@ -5,7 +5,7 @@
  * 一行调用行（状态图标 + 工具标题）加一块展开后的正文面板，不再按工具名分支。
  * 调用行文字以工具名开头时保留它自己的配色，否则换成工具名加 muted 的参数文字；
  * 超时这类执行细节不进入调用行。
- * 折叠时整张卡只有一行：调用行末尾接上耗时、被隐藏的行数与展开提示。
+ * 折叠时整张卡只有一行：调用行末尾接上括号里的耗时与被隐藏的行数。
  * 展开后工具的描述文字与正文各最多展示 100 行，超出部分换成一行提示。
  * 展开与折叠都可以按 ctrl+o 或点击该行触发。
  *
@@ -26,6 +26,7 @@ import {
 	Container,
 	Spacer,
 	Text,
+	mixColors,
 	stripTerminalSequences,
 	truncateToWidth,
 	visibleWidth,
@@ -41,11 +42,20 @@ const CALL_HEADER_LINES = 1;
 /** 调用行参数预览的最大字符数 */
 const COLLAPSED_ARGS_CHARS = 100;
 
-/** 工具名用主题的强调色，参数与耗时等附注统一用 muted，与正文的强调部分分开 */
+/** 工具名与状态图标用主题的强调色，参数与附注统一用 muted，与正文的强调部分分开 */
 const TOOL_NAME_COLOR = "accent";
 const TOOL_ARG_COLOR = "muted";
 
-/** 把工具自己的渲染器用到的主题色换成调用行的配色：名字 accent、参数 muted。只影响颜色字符串 */
+/** 工具名向正文颜色混合的比例，比正文的强调色淡一档 */
+const TOOL_NAME_MIX = 0.3;
+
+/** 工具名的颜色：强调色掺一点正文颜色，比正文里的强调色淡 */
+function paintToolName(theme: Theme, text: string): string {
+	const colors = theme.colors;
+	return theme.style(text, { fg: mixColors(colors.accent, colors.text, TOOL_NAME_MIX) });
+}
+
+/** 把工具自己的渲染器用到的主题色换成调用行的配色：名字用淡一档的强调色、参数 muted。只影响颜色字符串 */
 function toolCallTheme(theme: Theme): Theme {
 	return new Proxy(theme, {
 		get(target, property, receiver) {
@@ -54,7 +64,7 @@ function toolCallTheme(theme: Theme): Theme {
 				return value;
 			}
 			return (color: ThemeColor, text: string) =>
-				target.fg(color === "toolTitle" ? TOOL_NAME_COLOR : color === "accent" ? TOOL_ARG_COLOR : color, text);
+				color === "toolTitle" ? paintToolName(target, text) : target.fg(color === "accent" ? TOOL_ARG_COLOR : color, text);
 		},
 	});
 }
@@ -89,8 +99,6 @@ interface CallRenderState {
 	innerResult?: Component;
 	/** 工具自己的渲染器使用的状态，与调用行的计时分开 */
 	inner?: Record<string, unknown>;
-	/** 工具行在分组卡里，耗时与展开提示交给分组头部展示 */
-	grouped?: boolean;
 }
 
 /** 本扩展的渲染上下文，state 换成自己的类型 */
@@ -428,7 +436,7 @@ function durationText(context: CallContext): string | undefined {
 
 /** 没有自带渲染器的工具使用的调用行：工具名加参数预览 */
 function genericCallText(toolName: string, args: unknown, theme: Theme): string {
-	const header = theme.fg(TOOL_NAME_COLOR, theme.bold(toolName));
+	const header = paintToolName(theme, theme.bold(toolName));
 	if (args == null) {
 		return header;
 	}
@@ -476,7 +484,7 @@ function callArgs(args: unknown): unknown {
  * 改用工具名当标题，其余文字用 muted 重画，同一条命令不会出现两种颜色。
  */
 function callTitle(toolName: string, lines: string[], theme: Theme): string[] {
-	const header = theme.fg(TOOL_NAME_COLOR, theme.bold(toolName));
+	const header = paintToolName(theme, theme.bold(toolName));
 	const first = lines.findIndex((line) => !isBlank(line));
 	if (first === -1) {
 		return [header];
@@ -538,15 +546,12 @@ function createUniformRenderers(toolName: string, base: ToolRenderers | undefine
 
 			const hidden = hiddenLineCount(context, inner);
 			const parts: string[] = [];
-			// 分组卡由头部统一展示耗时与展开提示，组内工具行不再重复
-			if (!context.state.grouped) {
-				const duration = durationText(context);
-				if (duration !== undefined) {
-					parts.push(duration);
-				}
-				if (!options.expanded && hidden > 0) {
-					parts.push(lineLabel(hidden));
-				}
+			const duration = durationText(context);
+			if (duration !== undefined) {
+				parts.push(duration);
+			}
+			if (!options.expanded && hidden > 0) {
+				parts.push(lineLabel(hidden));
 			}
 			setCallSuffix(context, formatSuffix(parts, theme));
 
