@@ -217,16 +217,12 @@ function formatDuration(ms: number): string {
 	return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
-/** 调用行尾部的附注，不含前面的省略号分隔符 */
-function formatSuffix(parts: string[], withExpandKey: boolean, theme: Theme): string {
+/** 调用行尾部的附注，不含前面的省略号分隔符；颜色比工具参数淡一档 */
+function formatSuffix(parts: string[], theme: Theme): string {
 	if (parts.length === 0) {
 		return "";
 	}
-	const body = parts.join(", ");
-	if (!withExpandKey) {
-		return theme.fg("muted", `(${body})`);
-	}
-	return `${theme.fg("muted", `(${body}, `)}${keyHint("app.tools.expand", "to expand")}${theme.fg("muted", ")")}`;
+	return theme.fg("dim", `(${parts.join(", ")})`);
 }
 
 /**
@@ -552,7 +548,7 @@ function createUniformRenderers(toolName: string, base: ToolRenderers | undefine
 					parts.push(lineLabel(hidden));
 				}
 			}
-			setCallSuffix(context, formatSuffix(parts, !context.state.grouped && !options.expanded && hidden > 0, theme));
+			setCallSuffix(context, formatSuffix(parts, theme));
 
 			if (!options.expanded) {
 				return new Container();
