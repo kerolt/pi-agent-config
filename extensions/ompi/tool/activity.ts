@@ -302,7 +302,6 @@ function record(parent: ContainerLike, child: unknown): void {
 		return;
 	}
 	if (state.userClass !== undefined && child instanceof state.userClass) {
-		state.pendingFinalize = false;
 		finalizeTurn();
 		return;
 	}
