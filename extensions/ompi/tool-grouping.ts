@@ -21,8 +21,8 @@ const PREFIX_WIDTH = 2;
 /** 往前找同组工具时最多跳过的空白组件个数 */
 const MAX_SKIPPED = 3;
 
-/** diff 类工具独立展示，不进分组 */
-const NON_GROUPABLE = new Set(["edit", "write", "apply_patch"]);
+/** diff 类工具与 subagent 独立展示，不进分组 */
+const NON_GROUPABLE = new Set(["edit", "write", "apply_patch", "subagent"]);
 
 /** Pi 把当前主题放在这个全局符号下，分组卡不经过渲染器回调，只能从这里取色 */
 const THEME_KEY = Symbol.for("@earendil-works/pi-coding-agent:theme");
@@ -71,6 +71,22 @@ function currentTheme(): Theme {
 
 function isBlank(line: string | undefined): boolean {
 	return line === undefined || stripTerminalSequences(line).trim() === "";
+}
+
+/**
+ * 只画空白的叶子组件（Spacer）。不拿类引用做判断：打包产物里的 Spacer 与扩展导入的
+ * 不是同一个类，按结构认更可靠。
+ */
+function isBlankRow(value: unknown): boolean {
+	if (value === null || typeof value !== "object" || "children" in value) {
+		return false;
+	}
+	const render = (value as { render?: unknown }).render;
+	if (typeof render !== "function") {
+		return false;
+	}
+	const lines = (render as (width: number) => string[]).call(value, 1);
+	return Array.isArray(lines) && lines.every((line) => stripTerminalSequences(String(line)).trim() === "");
 }
 
 /** 工具名的显示形式：bash -> Bash，ask_user_question -> Ask User Question */
@@ -223,16 +239,16 @@ export default function (pi: ExtensionAPI) {
 		const groupable = (value: unknown): value is ToolRow =>
 			value instanceof toolClass && !NON_GROUPABLE.has(value.toolName);
 
-		/** 渲染不出内容的助手消息不算分组边界 */
+		/** 空行组件与渲染不出内容的助手消息都不算分组边界 */
 		const ignorable = (value: unknown): boolean => {
-			if (!(value instanceof assistantClass)) {
-				return false;
+			if (value instanceof assistantClass) {
+				const children = value.contentContainer?.children;
+				return Array.isArray(children) && children.length === 0;
 			}
-			const children = value.contentContainer?.children;
-			return Array.isArray(children) && children.length === 0;
+			return isBlankRow(value);
 		};
 
-		/** 往前找到第一个能看见的同级组件，跳过空白助手消息 */
+		/** 往前找到第一个能看见的同级组件，跳过空行与空白助手消息 */
 		const anchorOf = (children: unknown[], start: number): { child: unknown; index: number } | undefined => {
 			let skipped = 0;
 			for (let index = start; index >= 0; index--) {
