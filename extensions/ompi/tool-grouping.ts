@@ -11,7 +11,7 @@ import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { keyHint } from "@earendil-works/pi-coding-agent";
 import type { TuiMouseEvent } from "@earendil-works/pi-tui";
 import { stripTerminalSequences, truncateToWidth } from "@earendil-works/pi-tui";
-import { attach, detach, onChildAdded, onChildRemoved, parentOf, patchChatTree } from "./lib/chat-tree.ts";
+import { attach, detach, parentOf, patchChatTree, setChildAddedHook, setChildRemovedHook, sharedObject } from "./lib/chat-tree.ts";
 import type { ChatContainer } from "./lib/chat-tree.ts";
 import { loadBundle } from "./lib/pi-bundle.ts";
 
@@ -60,6 +60,7 @@ type ContainerComponent = ChatContainer & {
 
 /** 分组是否已经装好，重复的 session_start 不再重复安装 */
 let installed = false;
+
 
 function currentTheme(): Theme {
 	const theme = (globalThis as Record<symbol, Theme | undefined>)[THEME_KEY];
@@ -222,7 +223,8 @@ export default function (pi: ExtensionAPI) {
 		patchChatTree(toolClass);
 
 		const base = Object.getPrototypeOf(toolClass.prototype).constructor as new () => ContainerComponent;
-		const ToolGroup = createGroupClass(base);
+		// 重新加载扩展时沿用同一个分组类，旧分组才能被新回调识别
+		const ToolGroup = sharedObject("tool-group", () => createGroupClass(base));
 
 		const groupable = (value: unknown): value is ToolRow =>
 			value instanceof toolClass && !NON_GROUPABLE.has(value.toolName);
@@ -273,7 +275,7 @@ export default function (pi: ExtensionAPI) {
 			detach(group);
 		};
 
-		onChildAdded((parent, child) => {
+		setChildAddedHook((parent, child) => {
 			if (!groupable(child) || parent instanceof ToolGroup) {
 				return;
 			}
@@ -301,7 +303,7 @@ export default function (pi: ExtensionAPI) {
 			attach(parent, group);
 		});
 
-		onChildRemoved((parent, child) => {
+		setChildRemovedHook((parent, child) => {
 			if (parent instanceof ToolGroup) {
 				if (parent.children.length < 2) {
 					dissolve(parent);
