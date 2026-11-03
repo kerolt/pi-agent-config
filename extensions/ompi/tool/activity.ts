@@ -23,6 +23,7 @@ import { loadBundle } from "../lib/pi-bundle.ts";
 const TOOL_PATCH_FLAG = Symbol.for("pi.ompi.turn-summary.tool");
 const ASSISTANT_PATCH_FLAG = Symbol.for("pi.ompi.turn-summary.assistant");
 const CONTAINER_PATCH_FLAG = Symbol.for("pi.ompi.turn-summary.container");
+const RENDER_PATCH_FLAG = Symbol.for("pi.ompi.turn-summary.render");
 
 /** 跨扩展重新加载共享的状态：原型上的补丁还在，记录不能留在旧模块里 */
 const STATE_KEY = Symbol.for("pi.ompi.turn-summary");
@@ -62,7 +63,9 @@ type ContainerLike = { children: unknown[] };
 type ContainerClass = {
 	prototype: ContainerLike & {
 		addChild: (this: ContainerLike, child: unknown) => void;
+		render: (this: ContainerLike, width: number) => string[];
 		[CONTAINER_PATCH_FLAG]?: boolean;
+		[RENDER_PATCH_FLAG]?: boolean;
 	};
 };
 
@@ -98,6 +101,8 @@ type TurnState = {
 	hiddenThinking: WeakSet<object>;
 	/** 每条助手消息原来的思考标签，展开时还原 */
 	labels: WeakMap<object, string>;
+	/** 回放完的第一次渲染时要补一次收尾 */
+	pendingFinalize: boolean;
 };
 
 function turnState(): TurnState {
@@ -115,6 +120,7 @@ function turnState(): TurnState {
 		hiddenTools: new WeakSet(),
 		hiddenThinking: new WeakSet(),
 		labels: new WeakMap(),
+		pendingFinalize: false,
 	};
 	(globalThis as Record<symbol, TurnState | undefined>)[STATE_KEY] = created;
 	return created;
@@ -296,6 +302,7 @@ function record(parent: ContainerLike, child: unknown): void {
 		return;
 	}
 	if (state.userClass !== undefined && child instanceof state.userClass) {
+		state.pendingFinalize = false;
 		finalizeTurn();
 		return;
 	}
@@ -370,6 +377,30 @@ function patchAddChild(component: ContainerClass): void {
 	prototype.addChild = patchedAddChild;
 }
 
+/**
+ * 回放没有结束事件，靠 transcript 容器的第一次渲染收尾最后一轮：
+ * 渲染时先把这一轮折叠好，再交回原实现。
+ */
+function patchRender(component: ContainerClass): void {
+	const prototype = component.prototype;
+	if (prototype[RENDER_PATCH_FLAG]) {
+		return;
+	}
+	const originalRender = prototype.render;
+
+	const patchedRender = function (this: ContainerLike, width: number): string[] {
+		const state = turnState();
+		if (state.pendingFinalize && this === state.container) {
+			state.pendingFinalize = false;
+			finalizeTurn();
+		}
+		return originalRender.call(this, width);
+	};
+
+	Object.defineProperty(patchedRender, RENDER_PATCH_FLAG, { value: true });
+	prototype.render = patchedRender;
+}
+
 /** 把所有汇总行整体展开或收起 */
 function toggleAllTurns(ctx: ExtensionContext): void {
 	const state = turnState();
@@ -398,6 +429,7 @@ export default function (pi: ExtensionAPI) {
 	// 子代理的会话也走这套事件，只有交互会话才动这个状态
 	pi.on("agent_start", (_event, ctx) => {
 		if (ctx.mode === "tui") {
+			turnState().pendingFinalize = false;
 			finalizeTurn();
 		}
 	});
@@ -414,6 +446,7 @@ export default function (pi: ExtensionAPI) {
 		state.turns.clear();
 		state.components = [];
 		state.container = undefined;
+		state.pendingFinalize = true;
 	});
 
 	pi.on("session_start", async (event) => {
@@ -438,13 +471,13 @@ export default function (pi: ExtensionAPI) {
 		state.userClass = userClass;
 		patchToolRender(toolClass);
 		patchAssistantRender(assistantClass);
-		patchAddChild(containerClassOf(toolClass));
+		const container = containerClassOf(toolClass);
+		patchAddChild(container);
+		patchRender(container);
 
-		// 回放是同步的，等它跑完再把最后一轮也收起来
+		// 回放跑完后的第一次渲染再把最后一轮也收起来
 		if (replay) {
-			setTimeout(() => {
-				finalizeTurn();
-			}, 0);
+			state.pendingFinalize = true;
 		}
 	});
 }
