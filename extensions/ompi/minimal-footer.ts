@@ -10,6 +10,12 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
+/**
+ * ReadonlySessionManager 的 Pick 列表里漏了 getEntryCount，运行时拿到的是完整 SessionManager，
+ * 这里只补上这一个方法。
+ */
+type EntryCounter = { getEntryCount(): number };
+
 interface UsageTotals {
 	input: number;
 	output: number;
@@ -131,7 +137,8 @@ export default function (pi: ExtensionAPI) {
 			/** 统计整个会话的用量，用会话 id 与条目数量做缓存，避免每帧重算 */
 			const collect = (): { totals: UsageTotals; cacheHitRate: number | undefined } => {
 				const sessionManager = ctx.sessionManager;
-				const key = `${sessionManager.getSessionId()}:${sessionManager.getEntryCount()}:${sessionManager.getLeafId()}`;
+				const entryCount = (sessionManager as unknown as EntryCounter).getEntryCount();
+				const key = `${sessionManager.getSessionId()}:${entryCount}:${sessionManager.getLeafId()}`;
 				if (key === cachedKey) {
 					return { totals, cacheHitRate };
 				}

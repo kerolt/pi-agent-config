@@ -41,10 +41,11 @@ export default function (pi: ExtensionAPI) {
 	/** 从 TUI 往下找到含本扩展空 widget 的容器 */
 	const findContainer = (): Container | undefined => {
 		if (!tui || !owner) return undefined;
+		const marker = owner;
 		const visit = (component: Component, depth: number): Container | undefined => {
 			if (!Array.isArray((component as Container).children)) return undefined;
 			const container = component as Container;
-			if (container.children.includes(owner)) return container;
+			if (container.children.includes(marker)) return container;
 			if (depth >= MAX_CONTAINER_DEPTH) return undefined;
 			for (const child of container.children) {
 				const found = visit(child, depth + 1);
