@@ -80,6 +80,8 @@ type SummaryComponent = {
 type Turn = {
 	container: ContainerLike;
 	summary: SummaryComponent;
+	/** 展开时排在活动区末尾的折叠提示 */
+	hint: SummaryComponent;
 	components: object[];
 	toolCount: number;
 	thinkingCount: number;
@@ -205,6 +207,7 @@ function setTurnExpanded(turn: Turn, expanded: boolean): void {
 		}
 	}
 	turn.summary.invalidate();
+	turn.hint.invalidate();
 }
 
 /** 汇总行：一行标记加计数，点击整轮展开或收起 */
@@ -232,6 +235,43 @@ function createSummary(turn: Turn): SummaryComponent {
 			return { handled: true };
 		},
 	};
+}
+
+/** 展开时露在活动区末尾的折叠提示，收起时不占行 */
+function createCollapseHint(turn: Turn): SummaryComponent {
+	return {
+		render(width: number): string[] {
+			if (!turn.expanded) {
+				return [];
+			}
+			const theme = currentTheme();
+			return ["", truncateToWidth(` ${theme.fg("dim", "--- 点击折叠 ---")}`, width, "...")];
+		},
+		invalidate(): void {},
+		handleMouse(event: TuiMouseEvent): unknown {
+			if (event.type !== "click" || event.button !== "left") {
+				return undefined;
+			}
+			setTurnExpanded(turn, false);
+			return { handled: true };
+		},
+	};
+}
+
+/** 折叠提示插在活动区末尾：最后一个是工具行就排在它后面，否则排在最后一条助手消息前面 */
+function collapseHintIndex(turn: Turn): number {
+	const state = turnState();
+	const children = turn.container.children;
+	const present = turn.components.filter((component) => children.indexOf(component) >= 0);
+	const last = present[present.length - 1];
+	if (last === undefined) {
+		return -1;
+	}
+	if (state.toolClass !== undefined && last instanceof state.toolClass) {
+		return children.indexOf(last) + 1;
+	}
+	// 只有一条助手消息的回合，标题行就在上面，不需要额外提示
+	return present.length > 1 ? children.indexOf(last) : -1;
 }
 
 /** 收尾当前回合：插入汇总行，把本轮的组件收起来 */
@@ -276,6 +316,7 @@ function finalizeTurn(): void {
 	const turn: Turn = {
 		container,
 		summary: undefined as unknown as SummaryComponent,
+		hint: undefined as unknown as SummaryComponent,
 		components,
 		toolCount: tools.length,
 		thinkingCount,
@@ -283,6 +324,11 @@ function finalizeTurn(): void {
 	};
 	turn.summary = createSummary(turn);
 	container.children.splice(index, 0, turn.summary);
+	turn.hint = createCollapseHint(turn);
+	const hintIndex = collapseHintIndex(turn);
+	if (hintIndex >= 0) {
+		container.children.splice(hintIndex, 0, turn.hint);
+	}
 	state.turns.add(turn);
 
 	for (const component of components) {
