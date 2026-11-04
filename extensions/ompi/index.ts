@@ -11,6 +11,7 @@ import minimalFooter from "./minimal-footer.ts";
 import todoPanelFold from "./todo-panel-fold.ts";
 import toolActivity from "./tool/activity.ts";
 import toolOutputLimit from "./tool/output-limit.ts";
+import userMessageRail from "./user-message-rail.ts";
 
 export default function (pi: ExtensionAPI) {
   inputEditor(pi);
@@ -18,4 +19,5 @@ export default function (pi: ExtensionAPI) {
   toolOutputLimit(pi);
   toolActivity(pi);
   todoPanelFold(pi);
+  userMessageRail(pi);
 }
