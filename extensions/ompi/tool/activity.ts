@@ -117,6 +117,8 @@ type TurnState = {
 /** 全屏 TUI 的滚动接口，普通模式没有 */
 type ScrollHost = {
 	isFollowingOutput?: boolean;
+	/** 视口顶部在内容里的行号 */
+	viewportTop?: number;
 	scrollBy?: (lines: number) => void;
 };
 
@@ -225,32 +227,64 @@ function setTurnExpanded(turn: Turn, expanded: boolean): void {
 	turn.hint.invalidate();
 }
 
-/** 把滚动位置往前补 removed 行，只在不跟随时才动 */
-function compensateScroll(removed: number): void {
-	const host = turnState().scrollHost;
-	if (removed <= 0 || host === undefined || host.isFollowingOutput !== false) {
-		return;
-	}
-	host.scrollBy?.(-removed);
-}
-
-/** 收起一轮：先量出会少多少行，收起后把滚动位置补回来，视口不会被夹到最底部 */
-function collapseTurn(turn: Turn): void {
+/**
+ * 收起若干轮，并把视口上方被砍掉的行数补回去。
+ *
+ * Pi 的滚动视口在内容变矮时会把 scrollTop 夹到新的最大值，不补就会跳到最底部；
+ * 补的时候只能补视口上方的部分，否则会把视口往上推。
+ */
+function collapseTurns(turns: Turn[]): void {
 	const state = turnState();
 	const width = state.lastWidth;
-	if (!turn.expanded || width === undefined) {
-		setTurnExpanded(turn, false);
+	const host = state.scrollHost;
+	const container = turns[0]?.container;
+	const expanded = turns.filter((turn) => turn.expanded);
+	if (
+		width === undefined ||
+		host === undefined ||
+		container === undefined ||
+		expanded.length === 0 ||
+		host.isFollowingOutput !== false ||
+		host.viewportTop === undefined
+	) {
+		for (const turn of turns) {
+			setTurnExpanded(turn, false);
+		}
 		return;
 	}
-	const before = turn.container.render(width).length;
-	setTurnExpanded(turn, false);
-	compensateScroll(before - turn.container.render(width).length);
+
+	const viewportTop = host.viewportTop;
+	const before = new Map<object, { top: number; height: number }>();
+	let top = 0;
+	for (const child of container.children as Array<{ render: (width: number) => string[] }>) {
+		const height = child.render(width).length;
+		before.set(child, { top, height });
+		top += height;
+	}
+
+	for (const turn of turns) {
+		setTurnExpanded(turn, false);
+	}
+
+	let removedAbove = 0;
+	for (const child of container.children as Array<{ render: (width: number) => string[] }>) {
+		const record = before.get(child);
+		if (record === undefined) {
+			continue;
+		}
+		const removed = record.height - child.render(width).length;
+		if (removed <= 0 || record.top >= viewportTop) {
+			continue;
+		}
+		removedAbove += Math.min(removed, viewportTop - record.top);
+	}
+	host.scrollBy?.(-removedAbove);
 }
 
 /** 点击汇总行与折叠提示都是同一个开关 */
 function toggleTurn(turn: Turn): void {
 	if (turn.expanded) {
-		collapseTurn(turn);
+		collapseTurns([turn]);
 		return;
 	}
 	setTurnExpanded(turn, true);
@@ -298,7 +332,7 @@ function createCollapseHint(turn: Turn): SummaryComponent {
 			if (event.type !== "click" || event.button !== "left") {
 				return undefined;
 			}
-			collapseTurn(turn);
+			toggleTurn(turn);
 			return { handled: true };
 		},
 	};
@@ -505,15 +539,7 @@ function toggleAllTurns(ctx: ExtensionContext): void {
 		ctx.ui.notify("Tool activity: visible");
 		return;
 	}
-	const container = state.turns.values().next().value?.container;
-	const width = state.lastWidth;
-	const before = container === undefined || width === undefined ? undefined : container.render(width).length;
-	for (const turn of state.turns) {
-		setTurnExpanded(turn, false);
-	}
-	if (before !== undefined && container !== undefined && width !== undefined) {
-		compensateScroll(before - container.render(width).length);
-	}
+	collapseTurns([...state.turns]);
 	ctx.ui.notify("Tool activity: hidden");
 }
 
