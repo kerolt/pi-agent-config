@@ -28,6 +28,9 @@ const RENDER_PATCH_FLAG = Symbol.for("pi.ompi.turn-summary.render");
 /** 跨扩展重新加载共享的状态：原型上的补丁还在，记录不能留在旧模块里 */
 const STATE_KEY = Symbol.for("pi.ompi.turn-summary");
 
+/** 拿 TUI 引用用的空 widget */
+const SCROLL_WIDGET_KEY = "ompi-turn-summary-scroll";
+
 /** Pi 把当前主题放在这个全局符号下，汇总行不经过渲染器回调，只能从这里取色 */
 const THEME_KEY = Symbol.for("@earendil-works/pi-coding-agent:theme");
 
@@ -58,7 +61,7 @@ type AssistantClass = {
 
 type UserRowClass = { new (...args: unknown[]): object };
 
-type ContainerLike = { children: unknown[] };
+type ContainerLike = { children: unknown[]; render: (width: number) => string[] };
 
 type ContainerClass = {
 	prototype: ContainerLike & {
@@ -105,6 +108,16 @@ type TurnState = {
 	labels: WeakMap<object, string>;
 	/** 回放完的第一次渲染时要补一次收尾 */
 	pendingFinalize: boolean;
+	/** 最近一次渲染用的宽度，收起时用它算行数差 */
+	lastWidth: number | undefined;
+	/** 全屏下的滚动视口，用来在收起时补回滚动位置 */
+	scrollHost: ScrollHost | undefined;
+};
+
+/** 全屏 TUI 的滚动接口，普通模式没有 */
+type ScrollHost = {
+	isFollowingOutput?: boolean;
+	scrollBy?: (lines: number) => void;
 };
 
 function turnState(): TurnState {
@@ -123,6 +136,8 @@ function turnState(): TurnState {
 		hiddenThinking: new WeakSet(),
 		labels: new WeakMap(),
 		pendingFinalize: false,
+		lastWidth: undefined,
+		scrollHost: undefined,
 	};
 	(globalThis as Record<symbol, TurnState | undefined>)[STATE_KEY] = created;
 	return created;
@@ -210,6 +225,37 @@ function setTurnExpanded(turn: Turn, expanded: boolean): void {
 	turn.hint.invalidate();
 }
 
+/** 把滚动位置往前补 removed 行，只在不跟随时才动 */
+function compensateScroll(removed: number): void {
+	const host = turnState().scrollHost;
+	if (removed <= 0 || host === undefined || host.isFollowingOutput !== false) {
+		return;
+	}
+	host.scrollBy?.(-removed);
+}
+
+/** 收起一轮：先量出会少多少行，收起后把滚动位置补回来，视口不会被夹到最底部 */
+function collapseTurn(turn: Turn): void {
+	const state = turnState();
+	const width = state.lastWidth;
+	if (!turn.expanded || width === undefined) {
+		setTurnExpanded(turn, false);
+		return;
+	}
+	const before = turn.container.render(width).length;
+	setTurnExpanded(turn, false);
+	compensateScroll(before - turn.container.render(width).length);
+}
+
+/** 点击汇总行与折叠提示都是同一个开关 */
+function toggleTurn(turn: Turn): void {
+	if (turn.expanded) {
+		collapseTurn(turn);
+		return;
+	}
+	setTurnExpanded(turn, true);
+}
+
 /** 汇总行：一行标记加计数，点击整轮展开或收起 */
 function createSummary(turn: Turn): SummaryComponent {
 	return {
@@ -231,7 +277,7 @@ function createSummary(turn: Turn): SummaryComponent {
 			if (event.type !== "click" || event.button !== "left") {
 				return undefined;
 			}
-			setTurnExpanded(turn, !turn.expanded);
+			toggleTurn(turn);
 			return { handled: true };
 		},
 	};
@@ -252,7 +298,7 @@ function createCollapseHint(turn: Turn): SummaryComponent {
 			if (event.type !== "click" || event.button !== "left") {
 				return undefined;
 			}
-			setTurnExpanded(turn, false);
+			collapseTurn(turn);
 			return { handled: true };
 		},
 	};
@@ -436,6 +482,7 @@ function patchRender(component: ContainerClass): void {
 
 	const patchedRender = function (this: ContainerLike, width: number): string[] {
 		const state = turnState();
+		state.lastWidth = width;
 		if (state.pendingFinalize && this === state.container) {
 			state.pendingFinalize = false;
 			finalizeTurn();
@@ -451,10 +498,23 @@ function patchRender(component: ContainerClass): void {
 function toggleAllTurns(ctx: ExtensionContext): void {
 	const state = turnState();
 	const anyCollapsed = [...state.turns].some((turn) => !turn.expanded);
-	for (const turn of state.turns) {
-		setTurnExpanded(turn, anyCollapsed);
+	if (anyCollapsed) {
+		for (const turn of state.turns) {
+			setTurnExpanded(turn, true);
+		}
+		ctx.ui.notify("Tool activity: visible");
+		return;
 	}
-	ctx.ui.notify(`Tool activity: ${anyCollapsed ? "visible" : "hidden"}`);
+	const container = state.turns.values().next().value?.container;
+	const width = state.lastWidth;
+	const before = container === undefined || width === undefined ? undefined : container.render(width).length;
+	for (const turn of state.turns) {
+		setTurnExpanded(turn, false);
+	}
+	if (before !== undefined && container !== undefined && width !== undefined) {
+		compensateScroll(before - container.render(width).length);
+	}
+	ctx.ui.notify("Tool activity: hidden");
 }
 
 export default function (pi: ExtensionAPI) {
@@ -495,7 +555,7 @@ export default function (pi: ExtensionAPI) {
 		state.pendingFinalize = true;
 	});
 
-	pi.on("session_start", async (event) => {
+	pi.on("session_start", async (event, ctx) => {
 		const state = turnState();
 		// reload 不重建 transcript，进行中的回合也不打断
 		const replay = event.reason !== "reload";
@@ -520,6 +580,18 @@ export default function (pi: ExtensionAPI) {
 		const container = containerClassOf(toolClass);
 		patchAddChild(container);
 		patchRender(container);
+
+		// 收起时要把滚动位置补回来，需要一个 TUI 引用；widget 工厂是唯一拿得到它的入口
+		if (ctx.hasUI) {
+			ctx.ui.setWidget(
+				SCROLL_WIDGET_KEY,
+				(tui) => {
+					state.scrollHost = tui as ScrollHost;
+					return { render: () => [], invalidate: () => {} };
+				},
+				{ placement: "aboveEditor" },
+			);
+		}
 
 		// 回放跑完后的第一次渲染再把最后一轮也收起来
 		if (replay) {
