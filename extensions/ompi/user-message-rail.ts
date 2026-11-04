@@ -288,12 +288,15 @@ function measure(state: RailState): RailView | undefined {
 	if (tui === undefined || transcript === undefined) {
 		return undefined;
 	}
+	const cache = state.cache;
+	const reusable = cache !== undefined && cache.tui === tui && cache.transcript === transcript;
 	const frame = tui.currentLayout;
 	if (frame === undefined) {
-		return undefined;
+		// Pi 强制重绘时会先把上一帧的排版结果清掉，这一帧沿用上一帧的测量，
+		// 否则刻度条会闪一帧空白、正文跟着变宽一次
+		return reusable ? cache.view : undefined;
 	}
-	const cache = state.cache;
-	if (cache !== undefined && cache.frame === frame && cache.tui === tui && cache.transcript === transcript) {
+	if (reusable && cache.frame === frame) {
 		return cache.view;
 	}
 	const scrollBox = findScrollBox(frame.root, transcript);
@@ -394,7 +397,7 @@ function jumpTo(state: RailState, index: number): void {
 		return;
 	}
 	transcript.scrollTo(turn.top);
-	state.tui?.requestRender(true);
+	state.tui?.requestRender();
 }
 
 function createRail(state: RailState): Component {
@@ -541,7 +544,8 @@ function install(state: RailState, tui: RailHost, root: StackLike): void {
 
 	state.transcript = transcript;
 	state.cache = undefined;
-	tui.requestRender(true);
+	// 强制重绘会清掉当前排版帧，刻度条会因此闪一帧空列
+	tui.requestRender();
 }
 
 /** 每帧检查布局根是否已经包装好；模式切换会换 TUI，布局根与刻度条还是同一个 */
@@ -569,7 +573,7 @@ function ensureInstalled(state: RailState, tui: TUI): void {
 function toggleRail(state: RailState, ctx: ExtensionContext): void {
 	state.enabled = !state.enabled;
 	state.geometry = undefined;
-	state.tui?.requestRender(true);
+	state.tui?.requestRender();
 	ctx.ui.notify(state.enabled ? "User message rail: on" : "User message rail: off");
 }
 
