@@ -43,7 +43,7 @@
   "fullscreenExitOutput": "transcript",
   "extensionChangelogVersions": {
     "{\"source\":\"npm:@agnishc/edb-agent-steer\",\"scope\":\"user\"}": "0.21.1",
-    "{\"source\":\"npm:pi-subagents\",\"scope\":\"user\"}": "0.84.0",
-    "{\"source\":\"npm:pi-web-access\",\"scope\":\"user\"}": "0.46.0"
+    "{\"source\":\"npm:pi-subagents\",\"scope\":\"user\"}": "0.88.0",
+    "{\"source\":\"npm:pi-web-access\",\"scope\":\"user\"}": "0.47.0"
   }
 }
