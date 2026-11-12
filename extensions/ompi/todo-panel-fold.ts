@@ -7,11 +7,13 @@
  * 那个组件实例，改写它的 render 与 handleMouse。宿主没有提供包装 widget 的入口，只能改写
  * 实例方法，因此这里依赖两件内部事实：
  *
- * - widget 容器可以从 TUI 往下找到，容器里的子组件顺序与注册顺序一致；
+ * - widget 容器可以从 TUI 往下找到，容器里的子组件是各个扩展注册的组件实例；
  * - 组件是普通对象，render 与 handleMouse 都是可以替换的实例属性。
  *
- * 同一个容器里除本扩展的空 widget 之外，只会给 rpiv-todo 的面板加上这些行为。找不到面板
- * 时立即报错，不静默失效。
+ * 面板不能按位置认：aboveEditor 容器里第一个不是本扩展的组件也不一定是它，本扩展自己的
+ * 回合摘要、用户消息轨道，以及别的扩展都会往同一个容器里注册 widget，谁先注册谁在前面。
+ * 这里改为按内容认：rpiv-todo 的面板首行是「●/○ 标题 (已完成/总数)」，这个形状与语言无关。
+ * 认不出来时立即报错，不静默失效。
  */
 
 import { Container, Spacer, type Component, type TUI, type TuiMouseEvent, type TuiMouseEventResult } from "@earendil-works/pi-tui";
@@ -23,6 +25,15 @@ const OWNER_WIDGET_KEY = "todo-panel-fold";
 /** 递归查找 widget 容器时的深度上限 */
 const MAX_CONTAINER_DEPTH = 8;
 
+/** 探页面板时用的渲染宽度：够宽才不会把标题里的计数截掉 */
+const PROBE_WIDTH = 160;
+
+/** rpiv-todo 面板首行的形状：圆点 + 标题 + (已完成/总数)，标题本身随语言变化 */
+const TODO_HEADING = /^[●○]\s\S.*\(\d+\s*\/\s*\d+\)$/;
+
+/** 去掉 SGR 颜色序列，只留可见文本 */
+const stripAnsi = (line: string): string => line.replace(/\x1b\[[0-9;]*m/g, "");
+
 interface PanelComponent extends Component {
 	handleMouse?: (event: TuiMouseEvent) => TuiMouseEventResult | undefined;
 }
@@ -32,8 +43,10 @@ export default function (pi: ExtensionAPI) {
 	const wrapped = new WeakSet<Component>();
 	let tui: TUI | undefined;
 	let owner: Component | undefined;
+	/** 上一轮看到的候选组件，容器内容没变化就不重复探页 */
+	let candidates: Component[] = [];
 	let collapsed = false;
-	let reported = false;
+	let notified = false;
 
 	/** 折叠时只保留标题行，并补上末尾的空白分隔行 */
 	const fold = (lines: string[]): string[] => (collapsed && lines.length > 0 ? [lines[0], ""] : lines);
@@ -60,11 +73,17 @@ export default function (pi: ExtensionAPI) {
 		return undefined;
 	};
 
-	/** 容器里除本扩展空 widget 与分隔符之外的那个组件，就是 rpiv-todo 的面板 */
-	const findPanel = (): PanelComponent | undefined => {
-		const container = findContainer();
-		if (!container) return undefined;
-		return container.children.find((item) => item !== owner && !(item instanceof Spacer)) as PanelComponent | undefined;
+	/** 探页首行，判断这个 widget 是不是 rpiv-todo 的面板 */
+	const isTodoPanel = (component: Component): boolean => {
+		if (component === owner || component instanceof Spacer) return false;
+		if (typeof component.render !== "function") return false;
+		let lines: string[];
+		try {
+			lines = component.render(PROBE_WIDTH);
+		} catch {
+			return false;
+		}
+		return TODO_HEADING.test(stripAnsi(lines[0] ?? "").trim());
 	};
 
 	/** 只在完整的单击上切换折叠，按压与拖动都放行给 Pi 的文本选择 */
@@ -89,16 +108,29 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	const patch = (): void => {
-		const panel = findPanel();
-		if (!panel || wrapped.has(panel)) return;
-		wrap(panel);
-		tui?.requestRender(true);
+		const container = findContainer();
+		if (!container) return;
+		const next = container.children.filter((item) => item !== owner && !(item instanceof Spacer));
+		const unchanged = next.length === candidates.length && next.every((item, index) => item === candidates[index]);
+		// 认到面板之后就不再探页，除非容器的组件集合变了（有 widget 注册或注销）
+		if (unchanged && candidates.some((item) => wrapped.has(item))) return;
+		candidates = next;
+		let patched = false;
+		for (const item of next) {
+			if (wrapped.has(item) || !isTodoPanel(item)) continue;
+			wrap(item as PanelComponent);
+			patched = true;
+		}
+		if (patched) tui?.requestRender(true);
 	};
+
+	const hasPanel = (): boolean => candidates.some((item) => wrapped.has(item));
 
 	pi.on("session_start", (_event, ctx) => {
 		if (!ctx.hasUI) return;
 		collapsed = false;
-		reported = false;
+		notified = false;
+		candidates = [];
 		tui = undefined;
 		owner = undefined;
 
@@ -133,13 +165,14 @@ export default function (pi: ExtensionAPI) {
 		const tasks = message.details?.tasks;
 		if (!tasks?.some((task) => task.status !== "deleted")) return;
 		patch();
-		if (reported || findPanel()) return;
-		reported = true;
+		if (hasPanel() || notified) return;
+		notified = true;
 		ctx.ui.notify("没有找到 rpiv-todo 的面板，鼠标点击折叠未生效（面板结构可能已经变化）", "error");
 	});
 
 	pi.on("session_shutdown", () => {
 		tui = undefined;
 		owner = undefined;
+		candidates = [];
 	});
 }
