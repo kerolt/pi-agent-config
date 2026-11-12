@@ -21,7 +21,7 @@
   "quietStartup": true,
   "defaultThinkingLevel": "high",
   "hideThinkingBlock": true,
-  "tuiMode": "fullscreen",
+  "tuiMode": "regular",
   "fullscreenScrollbar": "auto",
   "steeringMode": "one-at-a-time",
   "compaction": {
