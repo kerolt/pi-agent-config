@@ -432,7 +432,10 @@ class BranchBody implements Component {
 		}
 		const shown = lines.slice(0, PREVIEW_LINES);
 		const hidden = nonEmptyLineCount(lines.slice(PREVIEW_LINES));
-		const rendered = shown.map((line, index) => (index === 0 ? lead : tail) + theme.fg("muted", line));
+		// 折叠时只留预览，统一换成暗色，工具自己的高亮不进入这一层
+		const rendered = shown.map(
+			(line, index) => (index === 0 ? lead : tail) + theme.fg("dim", stripTerminalSequences(line)),
+		);
 		if (hidden > 0) {
 			rendered.push(tail + hiddenHint(hidden, theme));
 		}

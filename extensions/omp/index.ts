@@ -1,23 +1,14 @@
-/**
- * 自己改造 Pi 界面与行为的扩展集中入口。
- *
- * Pi 对每个子目录只取 index.ts 作为扩展入口，所以这里把各模块的工厂依次调用一遍，
- * 让它们共用同一个 ExtensionAPI 实例。新增模块时在这里补一行。
- */
-
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import inputEditor from "./input-editor.ts";
-import minimalFooter from "./minimal-footer.ts";
-import stickyUserMessage from "./sticky-user-message.ts";
-import todoPanelFold from "./todo-panel-fold.ts";
-import toolOutputLimit from "./tool/output-limit.ts";
-import transcriptMarks from "./transcript-marks.ts";
+import inputEditor from "./editor/input.ts";
+import minimalFooter from "./footer/minimal.ts";
+import transcriptMarks from "./transcript/marks.ts";
+import stickyUserMessage from "./transcript/sticky.ts";
+import toolOutputLimit from "./transcript/tool-output.ts";
 
 export default function (pi: ExtensionAPI) {
   inputEditor(pi);
   minimalFooter(pi);
   transcriptMarks(pi);
   toolOutputLimit(pi);
-  todoPanelFold(pi);
   stickyUserMessage(pi);
 }

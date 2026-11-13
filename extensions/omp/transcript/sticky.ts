@@ -24,14 +24,15 @@ import {
 	isViewportTUI,
 	stripTerminalSequences,
 	truncateToWidth,
+	visibleWidth,
 	type Component,
 	type TUI,
 	type TuiMouseEvent,
 	type TuiMouseEventResult,
 } from "@earendil-works/pi-tui";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { currentTheme, paintBlock } from "./lib/codex-style.ts";
-import { loadBundle } from "./lib/pi-bundle.ts";
+import { currentTheme, paintBlock } from "../lib/codex-style.ts";
+import { loadBundle } from "../lib/pi-bundle.ts";
 
 /** Pi 在用户消息与助手消息的首行都加这个标记，这里再给用户消息加一份用作区分 */
 const OSC133_ZONE_START = "\x1b]133;A\x07";
@@ -253,7 +254,7 @@ function measure(state: StickyState): StickyView | undefined {
 }
 
 /** 当前该吸附在顶部的用户消息；消息首行还在视口内时不吸附 */
-function stickyTarget(state: StickyState): { turn: Turn; line: string } | undefined {
+function stickyTarget(state: StickyState): { turn: Turn; line: string; more: boolean } | undefined {
 	const view = measure(state);
 	const transcript = state.transcript;
 	if (view === undefined || transcript === undefined) {
@@ -270,20 +271,47 @@ function stickyTarget(state: StickyState): { turn: Turn; line: string } | undefi
 	if (first.row >= scrollTop) {
 		return undefined;
 	}
-	return { turn, line: first.line };
+	return { turn, line: first.line, more: first.more };
 }
 
-/** 一条用户消息的第一条非空行，吸附条直接复用它的配色与提示符 */
-function messageFirstLine(view: StickyView, index: number): { row: number; line: string } {
+/** 用户消息的每一行都铺着背景色，去掉行首 OSC 标记后用它判断消息块的范围 */
+function isUserBlockLine(line: string): boolean {
+	const head = line.replace(/^(?:\x1b\][^\x07]*\x07)+/, "");
+	return /^\x1b\[48;[0-9;]*m/.test(head);
+}
+
+/** 一条用户消息的第一条非空行，并判断这条消息是否还有后续内容 */
+function messageFirstLine(view: StickyView, index: number): { row: number; line: string; more: boolean } {
 	const start = view.turns[index]?.top ?? 0;
 	const end = view.turns[index + 1]?.top ?? view.lines.length;
+	let first = -1;
 	for (let row = start; row < end; row++) {
 		const line = view.lines[row];
 		if (line !== undefined && stripTerminalSequences(line).trim() !== "") {
-			return { row, line };
+			first = row;
+			break;
 		}
 	}
-	return { row: start, line: view.lines[start] ?? "" };
+	if (first < 0) {
+		return { row: start, line: view.lines[start] ?? "", more: false };
+	}
+	// 消息块整块铺着背景，从这里找到它的结束；首行之后还有内容就算溢出
+	let blockEnd = start;
+	while (blockEnd < end && isUserBlockLine(view.lines[blockEnd] ?? "")) {
+		blockEnd++;
+	}
+	if (blockEnd <= first) {
+		blockEnd = first + 1;
+	}
+	let more = false;
+	for (let row = first + 1; row < blockEnd; row++) {
+		const line = view.lines[row];
+		if (line !== undefined && stripTerminalSequences(line).trim() !== "") {
+			more = true;
+			break;
+		}
+	}
+	return { row: first, line: view.lines[first]!, more };
 }
 
 /**
@@ -301,10 +329,21 @@ function createSticky(state: StickyState): Component {
 				state.stickyTop = undefined;
 				return [];
 			}
-			const line = target.line.replace(/\x1b\[48;[0-9;]*m/g, "").split("\x1b[49m").join("");
-			const text = truncateToWidth(line, width, "…").replace(/ +$/, "");
+			const theme = currentTheme();
+			const line = target.line
+				.replace(/\x1b\]133;[ABC](?:\x07|\x1b\\)/g, "")
+				.replace(/\x1b\[48;[0-9;]*m/g, "")
+				.split("\x1b[49m")
+				.join("");
+			let text = line.replace(/ +$/, "");
+			const textWidth = visibleWidth(text);
+			// 消息还有后续内容，或者首行超出吸附条宽度时补省略号
+			if (target.more || textWidth > width) {
+				const limit = Math.max(0, width - 1);
+				text = truncateToWidth(text, limit, "") + theme.fg("userMessageText", "…");
+			}
 			state.stickyTop = target.turn.top;
-			return [paintBlock(currentTheme(), text, width)];
+			return [paintBlock(theme, text, width)];
 		},
 
 		handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {

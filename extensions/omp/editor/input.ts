@@ -8,7 +8,7 @@
 
 import { CustomEditor, type ExtensionAPI, type KeybindingsManager } from "@earendil-works/pi-coding-agent";
 import { type EditorTheme, type TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { currentTheme, paintBlock, replaceIndent } from "./lib/codex-style.ts";
+import { currentTheme, paintBlock, replaceIndent } from "../lib/codex-style.ts";
 
 /** 提示符与输入文字的缩进列数 */
 const PROMPT_WIDTH = 3;

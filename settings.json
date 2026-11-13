@@ -22,7 +22,7 @@
   "defaultThinkingLevel": "high",
   "hideThinkingBlock": true,
   "tuiMode": "fullscreen",
-  "fullscreenScrollbar": "auto",
+  "fullscreenScrollbar": "hidden",
   "steeringMode": "one-at-a-time",
   "compaction": {
     "enabled": true

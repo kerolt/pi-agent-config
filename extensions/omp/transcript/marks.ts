@@ -11,8 +11,8 @@
 
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
-import { currentTheme, paintBlock, replaceIndent } from "./lib/codex-style.ts";
-import { loadBundle } from "./lib/pi-bundle.ts";
+import { currentTheme, paintBlock, replaceIndent } from "../lib/codex-style.ts";
+import { loadBundle } from "../lib/pi-bundle.ts";
 
 /** 打补丁的标记，避免重复包装同一批方法 */
 const USER_PATCH_TOKEN_KEY = Symbol.for("pi.ompi.codex.user.patch");
