@@ -26,7 +26,7 @@ const MARK_INDENT = 3;
 const USER_GLYPH = "›";
 const ASSISTANT_GLYPH = "•";
 
-/** 用户消息里的提示符占用的列数，与输出框的缩进一致 */
+/** 用户消息里的提示符占用的列数，与输入框的缩进一致 */
 const USER_PROMPT_WIDTH = MARK_INDENT;
 
 type TextBlock = { render: (width: number) => string[] };
@@ -140,7 +140,11 @@ function patchAssistantMessage(assistantClass: AssistantClass): void {
 			this.markdownSlots = [];
 		}
 		originalUpdateContent.call(this, message, isStreaming);
-		for (const slot of this.markdownSlots ?? []) {
+		const slots = this.markdownSlots;
+		if (!Array.isArray(slots)) {
+			throw new Error("助手消息组件里没有 markdownSlots，正文标记无法生效");
+		}
+		for (const slot of slots) {
 			if (slot.kind === "text") {
 				markTextBlock(slot.markdown);
 			}

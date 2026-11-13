@@ -56,6 +56,9 @@ export default function (pi: ExtensionAPI) {
 			render(width: number): string[] {
 				const lines = super.render(width);
 				const autocompleteHeight = (this as unknown as EditorInternals).renderedAutocompleteHeight;
+				if (typeof autocompleteHeight !== "number") {
+					throw new Error("编辑器内部字段 renderedAutocompleteHeight 不存在，输入框背景无法绘制");
+				}
 				// 第 0 行与自动补全之前的最后一行是上下留白，中间才是输入内容
 				const contentEnd = lines.length - 1 - autocompleteHeight;
 				const paddingX = Math.min(PROMPT_WIDTH, Math.max(0, Math.floor((width - 1) / 2)));
