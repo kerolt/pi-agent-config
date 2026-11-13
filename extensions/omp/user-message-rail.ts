@@ -539,7 +539,8 @@ function createSticky(state: RailState): Component {
 				state.stickyTop = undefined;
 				return [];
 			}
-			const line = target.line.split("\x1b[49m").join("");
+			// 行内自带的背景在本组件里统一重画，先把背景序列与行尾复位剥掉
+			const line = target.line.replace(/\x1b\[48;[0-9;]*m/g, "").split("\x1b[49m").join("");
 			const text = truncateToWidth(line, width, "…").replace(/ +$/, "");
 			state.stickyTop = target.turn.top;
 			return [paintBlock(currentTheme(), text, width)];
