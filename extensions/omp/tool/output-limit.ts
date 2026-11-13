@@ -1,15 +1,11 @@
 /**
- * 统一工具调用行在终端 transcript 中的展示方式。
+ * 把工具调用画成 codex 的样子。
  *
- * 所有工具都走同一条渲染路径：工具自身提供的调用行文字与正文被取出来，重新画成
- * 一行调用行（状态图标 + 工具标题）加一块展开后的正文面板，不再按工具名分支。
- * 调用行文字以工具名开头时保留它自己的配色，否则换成工具名加 muted 的参数文字；
- * 超时这类执行细节不进入调用行。
- * 折叠时整张卡只有一行：调用行末尾接上括号里的耗时与被隐藏的行数。
- * 展开后工具的描述文字与正文各最多展示 100 行，超出部分换成一行提示。
- * 展开与折叠都可以按 ctrl+o 或点击该行触发。
+ * 每次调用一行 `• Ran <命令>`，下一行用 `└` 引出输出的开头几行。折叠时只展示前几行，
+ * 其余内容折成一行 `+ N lines (… to expand)`；展开时展示完整正文，最多 100 行，
+ * 超出部分换成一行提示。展开与折叠仍然走 ctrl+o 或点击该行。
  *
- * 工具自己绘制的外框、内边距与耗时行在这里被丢掉，由统一的外壳重新绘制。
+ * 工具自己画的外框、内边距、背景与耗时行在这里被丢掉，由统一的外壳重新绘制。
  */
 
 import type { Component } from "@earendil-works/pi-tui";
@@ -26,12 +22,12 @@ import {
 	Container,
 	Spacer,
 	Text,
-	mixColors,
 	stripTerminalSequences,
 	truncateToWidth,
 	visibleWidth,
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
+import { currentTheme } from "../lib/codex-style.ts";
 
 /** 展开时正文与调用行文字各自展示的最大行数 */
 const MAX_EXPANDED_LINES = 100;
@@ -42,36 +38,35 @@ const CALL_HEADER_LINES = 1;
 /** 调用行参数预览的最大字符数 */
 const COLLAPSED_ARGS_CHARS = 100;
 
-/** 工具名与状态图标用主题的强调色，参数与附注统一用 muted，与正文的强调部分分开 */
-const TOOL_NAME_COLOR = "accent";
-const TOOL_ARG_COLOR = "muted";
+/** 折叠时输出的预览行数 */
+const PREVIEW_LINES = 3;
 
-/** 工具名向正文颜色混合的比例，比正文的强调色淡一档 */
-const TOOL_NAME_MIX = 0.3;
+/** 调用行与正文相对 transcript 左边界的缩进，与消息标记占用的列一致 */
+const CARD_INDENT = " ";
+const BRANCH = "└";
 
-/** 工具名的颜色：强调色掺一点正文颜色，比正文里的强调色淡 */
-function paintToolName(theme: Theme, text: string): string {
-	const colors = theme.colors;
-	return theme.style(text, { fg: mixColors(colors.accent, colors.text, TOOL_NAME_MIX) });
-}
+/** `└` 所在列与正文起始列 */
+const BRANCH_LEAD = `${CARD_INDENT}  ${BRANCH} `;
+const BRANCH_TAIL = " ".repeat(visibleWidth(BRANCH_LEAD));
 
-/** 把工具自己的渲染器用到的主题色换成调用行的配色：名字用淡一档的强调色、参数 muted。只影响颜色字符串 */
-function toolCallTheme(theme: Theme): Theme {
-	return new Proxy(theme, {
-		get(target, property, receiver) {
-			const value = Reflect.get(target, property, receiver);
-			if (property !== "fg" || typeof value !== "function") {
-				return value;
-			}
-			return (color: ThemeColor, text: string) =>
-				color === "toolTitle" ? paintToolName(target, text) : target.fg(color === "accent" ? TOOL_ARG_COLOR : color, text);
-		},
-	});
-}
+/** 状态图标与标题使用的颜色 */
+const STATUS_COLOR = "success";
+const LABEL_COLOR = "success";
 
-/** 工具内容相对左边界缩进的列数 */
-const INDENT = 1;
-const INDENT_TEXT = " ".repeat(INDENT);
+/** 工具名对应的动词，与 codex 的 `Ran`、`Read`、`Edited` 一致 */
+const TOOL_LABELS: Record<string, string> = {
+	bash: "Ran",
+	powershell: "Ran",
+	read: "Read",
+	edit: "Edited",
+	write: "Edited",
+	ls: "Listed",
+	find: "Searched",
+	grep: "Searched",
+};
+
+/** shell 工具调用行开头的提示符 */
+const SHELL_PROMPT = /^[$%❯>]\s+/;
 
 /** 执行中的 spinner 帧与刷新间隔 */
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -85,19 +80,13 @@ type ToolContent = ReadonlyArray<{ type: string; text?: string }>;
 
 /** 一个工具行由本扩展维护的渲染状态 */
 interface CallRenderState {
-	/** 开始执行的时刻，执行中用它与结束时刻算出已耗时 */
-	startedAt?: number;
-	/** 结束执行的时刻 */
-	endedAt?: number;
-	/** 结果渲染时改写附注的调用行组件 */
+	/** 调用行组件 */
 	callLine?: CallLine;
-	/** 调用行文字的非空行数，折叠时用来数被隐藏的行 */
-	callLineCount?: number;
 	/** 交给工具自己的渲染器复用的调用行组件 */
 	innerCall?: Component;
 	/** 交给工具自己的渲染器复用的结果组件 */
 	innerResult?: Component;
-	/** 工具自己的渲染器使用的状态，与调用行的计时分开 */
+	/** 工具自己的渲染器使用的状态，与调用行分开 */
 	inner?: Record<string, unknown>;
 }
 
@@ -135,50 +124,47 @@ function clearSpinnerTargets(): void {
 	}
 }
 
-/** 调用行左侧的状态图标：执行中为 spinner，完成时与工具名同色，失败时为红色叉 */
-function statusIcon(context: CallContext, theme: Theme): string {
-	if (context.isPartial) {
-		const frame = SPINNER_FRAMES[Math.floor(Date.now() / SPINNER_INTERVAL_MS) % SPINNER_FRAMES.length];
-		return theme.fg(TOOL_NAME_COLOR, frame);
-	}
-	return context.isError ? theme.fg("error", "✗") : theme.fg(TOOL_NAME_COLOR, "✓");
-}
-
-/** 在内容左侧补上进缩进列 */
-function inset(component: Component): Component {
-	return {
-		render: (width: number) =>
-			component.render(Math.max(1, width - INDENT)).map((line) => INDENT_TEXT + line),
-		invalidate: () => component.invalidate?.(),
-	};
-}
-
-/**
- * 展开后的正文区：整行铺满 userMessageBg，与 transcript 的其他部分区分开。
- * 高亮与 diff 行自带的 SGR 复位会把背景色清掉，所以每遇到复位就重新打开背景色。
- */
-function panel(component: Component, theme: Theme): Component {
-	return {
-		render: (width: number) => {
-			const bgOpen = theme.getBgAnsi("userMessageBg");
-			return component.render(Math.max(1, width - INDENT)).map((line) => {
-				const painted = INDENT_TEXT + line.split("\x1b[0m").join(`\x1b[0m${bgOpen}`);
-				const padding = " ".repeat(Math.max(0, width - visibleWidth(painted)));
-				return `${bgOpen}${painted}${padding}\x1b[49m`;
-			});
-		},
-		invalidate: () => component.invalidate?.(),
-	};
-}
-
-/** 结果包装：展开时铺背景面板，其余只做缩进 */
-function wrapResult(component: Component, theme: Theme, expanded: boolean): Component {
-	return expanded ? panel(component, theme) : inset(component);
-}
-
 /** 只有空白的行，包括渲染器补齐到整行的空白行 */
 function isBlank(line: string | undefined): boolean {
 	return line === undefined || stripTerminalSequences(line).trim() === "";
+}
+
+/** 去掉正文首尾的空行，`└` 要贴在真正的内容上 */
+function trimBlankEdges(lines: string[]): string[] {
+	let start = 0;
+	let end = lines.length;
+	while (start < end && isBlank(lines[start])) {
+		start++;
+	}
+	while (end > start && isBlank(lines[end - 1])) {
+		end--;
+	}
+	return lines.slice(start, end);
+}
+
+/** 文字里的非空行数，只有颜色的行不算内容 */
+function nonEmptyLineCount(lines: string[]): number {
+	return lines.filter((line) => !isBlank(line)).length;
+}
+
+/** 调用行左侧的状态图标：执行中为 spinner，完成时为圆点，失败时为红色叉 */
+function statusIcon(context: CallContext, theme: Theme): string {
+	if (context.isPartial) {
+		const frame = SPINNER_FRAMES[Math.floor(Date.now() / SPINNER_INTERVAL_MS) % SPINNER_FRAMES.length]!;
+		return theme.fg(STATUS_COLOR, frame);
+	}
+	return context.isError ? theme.fg("error", "✗") : theme.fg(STATUS_COLOR, "•");
+}
+
+/** 折叠时看不到的行数提示 */
+function hiddenHint(hidden: number, theme: Theme): string {
+	const count = theme.fg("dim", `+ ${hidden} line${hidden === 1 ? "" : "s"} `);
+	return count + theme.fg("dim", "(") + keyHint("app.tools.expand", "to expand") + theme.fg("dim", ")");
+}
+
+/** 正文超出上限时的提示行 */
+function overflowHint(rest: number, action: string, theme: Theme): string {
+	return `${theme.fg("muted", `... (${rest} more line${rest === 1 ? "" : "s"}, `)}${keyHint("app.tools.expand", action)}${theme.fg("muted", ")")}`;
 }
 
 /** 正文行数上限：首行是渲染器加的空白分隔行，不占额度 */
@@ -195,67 +181,6 @@ function limitBody(component: Component, theme: Theme): Component {
 		},
 		invalidate: () => component.invalidate?.(),
 	};
-}
-
-/** 超出上限时的提示行，附注里带上展开或折叠的快捷键 */
-function overflowHint(rest: number, action: string, theme: Theme): string {
-	return `${theme.fg("muted", `... (${rest} more line${rest === 1 ? "" : "s"}, `)}${keyHint("app.tools.expand", action)}${theme.fg("muted", ")")}`;
-}
-
-/** 文字里的非空行数，只有颜色的行不算内容 */
-function nonEmptyLineCount(lines: string[]): number {
-	return lines.filter((line) => stripTerminalSequences(line).trim() !== "").length;
-}
-
-function lineLabel(count: number): string {
-	return `${count} line${count === 1 ? "" : "s"}`;
-}
-
-function formatDuration(ms: number): string {
-	const seconds = ms / 1000;
-	if (seconds < 60) {
-		return `${seconds.toFixed(1)}s`;
-	}
-	const totalSeconds = Math.floor(seconds);
-	const minutes = Math.floor(totalSeconds / 60);
-	const remainder = totalSeconds % 60;
-	if (minutes < 60) {
-		return `${minutes}m ${remainder}s`;
-	}
-	return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
-}
-
-/** 调用行尾部的附注，不含前面的省略号分隔符；颜色比工具参数淡一档 */
-function formatSuffix(parts: string[], theme: Theme): string {
-	if (parts.length === 0) {
-		return "";
-	}
-	return theme.fg("dim", `(${parts.join(", ")})`);
-}
-
-/**
- * 把调用行文字与附注合成一行：附注优先保留，文字过长时截断。
- * 文字已经以省略号结尾时不再重复加分隔的省略号。
- */
-function composeCallLine(text: string, suffix: string, width: number): string {
-	const separator = " ... ";
-	if (!suffix) {
-		return truncateToWidth(text, width, "...");
-	}
-	const suffixWidth = visibleWidth(suffix);
-	if (width <= suffixWidth + separator.length) {
-		return truncateToWidth(suffix, width, "...");
-	}
-	const textWidth = Math.max(1, width - suffixWidth - visibleWidth(separator));
-	const truncated = truncateToWidth(text, textWidth, "...");
-	const ended = stripTerminalSequences(truncated).trimEnd().endsWith("...");
-	return truncated + (ended ? " " : separator) + suffix;
-}
-
-/** 折叠时只取标题的第一行，多行标题补上省略号，表示后面还有内容 */
-function withMoreMarker(raw: string): string {
-	const firstLine = raw.split("\n")[0].replace(/ +$/, "");
-	return raw.includes("\n") ? `${firstLine} ...` : firstLine;
 }
 
 /**
@@ -280,14 +205,30 @@ function componentLines(component: Component | undefined): string[] {
 	return children.flatMap((child) => componentLines(child as Component));
 }
 
-/**
- * 调用行组件：状态图标 + 工具标题，折叠时只占一行，附注接在末尾，超出宽度截断。
- * 展开时标题按宽度折行，完整展示命令与工具自己的预览。
- */
+/** 第 capacity 个之后的第一个非空行的位置，空行不占额度 */
+function capIndex(lines: string[], capacity: number): number {
+	let count = 0;
+	for (let index = 0; index < lines.length; index++) {
+		if (!isBlank(lines[index])) {
+			count++;
+			if (count > capacity) {
+				return index;
+			}
+		}
+	}
+	return lines.length;
+}
+
+/** 折叠时只取标题的第一行，多行标题补上省略号，表示后面还有内容 */
+function withMoreMarker(raw: string): string {
+	const firstLine = raw.split("\n")[0]!.replace(/ +$/, "");
+	return raw.includes("\n") ? `${firstLine} ...` : firstLine;
+}
+
+/** 调用行组件：状态图标 + 标题，折叠时只占一行，展开时按宽度折行 */
 class CallLine implements Component {
 	private text?: string;
 	private inner?: Component;
-	private suffix = "";
 	private trailer = "";
 	private icon = "";
 	private expanded = false;
@@ -298,10 +239,6 @@ class CallLine implements Component {
 
 	setInner(inner: Component): void {
 		this.inner = inner;
-	}
-
-	setSuffix(suffix: string): void {
-		this.suffix = suffix;
 	}
 
 	setTrailer(trailer: string): void {
@@ -318,24 +255,16 @@ class CallLine implements Component {
 
 	render(width: number): string[] {
 		const raw = this.text ?? (this.inner ? (this.inner.render(width)[0] ?? "") : "");
-		const prefix = this.icon ? `${this.icon} ` : "";
+		const prefix = `${CARD_INDENT}${this.icon} `;
 		const prefixWidth = visibleWidth(prefix);
 		const contentWidth = Math.max(1, width - prefixWidth);
 		if (!this.expanded) {
-			return [prefix + composeCallLine(withMoreMarker(raw), this.suffix, contentWidth)];
+			return [prefix + truncateToWidth(withMoreMarker(raw), contentWidth, "...")];
 		}
 		const indent = " ".repeat(prefixWidth);
 		const rendered = wrapTextWithAnsi(raw, contentWidth).map((line, index) =>
 			((index === 0 ? prefix : indent) + line).replace(/ +$/, ""),
 		);
-		if (this.suffix) {
-			const last = rendered[rendered.length - 1] ?? prefix;
-			if (visibleWidth(last) + visibleWidth(this.suffix) + 1 <= width) {
-				rendered[rendered.length - 1] = `${last} ${this.suffix}`;
-			} else {
-				rendered.push(truncateToWidth(this.suffix, width, "..."));
-			}
-		}
 		if (this.trailer) {
 			rendered.push(truncateToWidth(this.trailer, width, "..."));
 		}
@@ -365,10 +294,6 @@ function applyCallState(line: CallLine, context: CallContext, theme: Theme): voi
 	trackSpinner(context);
 }
 
-function setCallSuffix(context: CallContext, suffix: string): void {
-	context.state.callLine?.setSuffix(suffix);
-}
-
 /** 工具自己的渲染器使用的状态对象，首次取用时创建 */
 function innerStateOf(state: CallRenderState): Record<string, unknown> {
 	state.inner ??= {};
@@ -385,7 +310,7 @@ function innerContext(context: CallContext, lastComponent: Component | undefined
 		expanded: true,
 		// 结果已经由本扩展按最终态呈现，工具不必再区分流式阶段
 		isPartial: false,
-		// 耗时由调用行展示，工具不再重复写入耗时行
+		// 耗时不再进入调用行，工具也不必写入耗时行
 		durationMs: undefined,
 	};
 }
@@ -415,58 +340,24 @@ function extractOutput(content: ToolContent): string {
 	return output;
 }
 
-/** 折叠时看不到的行数：调用行文字里被折掉的部分加整段正文 */
-function hiddenLineCount(context: CallContext, body: Component): number {
-	const callLines = context.state.callLineCount ?? 1;
-	return Math.max(0, callLines - 1) + nonEmptyLineCount(componentLines(body));
-}
-
-/** 调用行的耗时文字，执行中用 Elapsed，结束后用 Took */
-function durationText(context: CallContext): string | undefined {
-	const state = context.state;
-	let durationMs = context.durationMs;
-	if (durationMs === undefined && state.startedAt !== undefined) {
-		durationMs = (state.endedAt ?? Date.now()) - state.startedAt;
-	}
-	if (durationMs === undefined) {
-		return undefined;
-	}
-	return `${context.isPartial ? "Elapsed" : "Took"} ${formatDuration(durationMs)}`;
-}
-
 /** 没有自带渲染器的工具使用的调用行：工具名加参数预览 */
-function genericCallText(toolName: string, args: unknown, theme: Theme): string {
-	const header = paintToolName(theme, theme.bold(toolName));
+function genericCallText(toolName: string, args: unknown): string {
 	if (args == null) {
-		return header;
+		return toolName;
 	}
 	const entries = typeof args === "object" && !Array.isArray(args) ? Object.entries(args) : [["args", args]];
 	if (entries.length === 0) {
-		return header;
+		return toolName;
 	}
 	const pairs = entries.map(([key, value]) => `${key}=${JSON.stringify(value) ?? String(value)}`).join(" ");
 	const preview = pairs.length > COLLAPSED_ARGS_CHARS ? `${pairs.slice(0, COLLAPSED_ARGS_CHARS - 3)}...` : pairs;
-	return `${header} ${theme.fg(TOOL_ARG_COLOR, preview)}`;
+	return `${toolName} ${preview}`;
 }
 
 /** 没有自带结果渲染器的工具：结果文本按正文样式展示 */
 function genericResult(result: AgentToolResult<unknown>, theme: Theme, color: ThemeColor): Component {
 	const text = extractOutput(result.content);
 	return text ? new Text(`\n${theme.fg(color, text)}`, 0, 0) : new Container();
-}
-
-/** 第 capacity 个之后的非空行的位置，空行不占额度 */
-function capIndex(lines: string[], capacity: number): number {
-	let count = 0;
-	for (let index = 0; index < lines.length; index++) {
-		if (stripTerminalSequences(lines[index] ?? "").trim() !== "") {
-			count++;
-			if (count > capacity) {
-				return index;
-			}
-		}
-	}
-	return lines.length;
 }
 
 /** 调用行只展示主要参数，超时这类执行细节不进入调用行 */
@@ -479,24 +370,78 @@ function callArgs(args: unknown): unknown {
 	return copy;
 }
 
+/** 工具名对应的动词 */
+function displayLabel(toolName: string): string {
+	return TOOL_LABELS[toolName] ?? toolName;
+}
+
 /**
- * 调用行的标题：工具自己的文字以工具名开头时保留它的配色，否则（例如 shell 的提示符）
- * 改用工具名当标题，其余文字用 muted 重画，同一条命令不会出现两种颜色。
+ * 去掉工具自己写的标题前缀，只留参数部分。shell 的标题以 `$` 开头，其他工具以工具名开头，
+ * 都不属于参数，统一换成 codex 的动词作为标题。
+ */
+function callBody(toolName: string, plain: string): string {
+	if (plain === toolName) {
+		return "";
+	}
+	if (plain.startsWith(`${toolName} `)) {
+		return plain.slice(toolName.length).trimStart();
+	}
+	return plain.replace(SHELL_PROMPT, "");
+}
+
+/**
+ * 调用行的标题：`Ran <命令>` 这类动词加参数，工具名开头的标题换成动词，
+ * 其余文字用正文颜色重画，同一条命令不会出现两种颜色。
  */
 function callTitle(toolName: string, lines: string[], theme: Theme): string[] {
-	const header = paintToolName(theme, theme.bold(toolName));
+	const label = theme.fg(LABEL_COLOR, displayLabel(toolName));
 	const first = lines.findIndex((line) => !isBlank(line));
 	if (first === -1) {
-		return [header];
+		return [label];
 	}
-	const plain = stripTerminalSequences(lines[first] ?? "").trimStart();
-	const [, head, rest] = plain.match(/^(\S+)(?:\s+([\s\S]*))?$/) ?? [plain, plain, ""];
-	if (head === toolName) {
-		return lines;
-	}
-	const rewritten = lines.map((line) => (isBlank(line) ? "" : theme.fg(TOOL_ARG_COLOR, stripTerminalSequences(line))));
-	rewritten[first] = rest ? `${header} ${theme.fg(TOOL_ARG_COLOR, rest)}` : header;
+	const plain = stripTerminalSequences(lines[first]!).trimStart();
+	const body = callBody(toolName, plain);
+	// 标题之后的文字可能是 diff 或命令的续行，保留工具自己的配色
+	const rewritten = lines.map((line, index) => (index === first || !isBlank(line) ? line : ""));
+	rewritten[first] = body ? `${label} ${theme.fg("text", body)}` : label;
 	return rewritten;
+}
+
+/**
+ * 结果正文：折叠时只取前几行，展开时全部展示。
+ * `└` 贴在第一条正文行，续行缩进到正文起始列。
+ */
+class BranchBody implements Component {
+	constructor(
+		private readonly inner: Component,
+		private readonly expanded: boolean,
+	) {}
+
+	render(width: number): string[] {
+		const theme = currentTheme();
+		const contentWidth = Math.max(1, width - BRANCH_TAIL.length);
+		const source = this.expanded ? limitBody(this.inner, theme) : this.inner;
+		const lines = trimBlankEdges(source.render(contentWidth));
+		if (lines.length === 0) {
+			return [];
+		}
+		const lead = theme.fg("dim", BRANCH_LEAD);
+		const tail = theme.fg("dim", BRANCH_TAIL);
+		if (this.expanded) {
+			return lines.map((line, index) => (index === 0 ? lead : tail) + line);
+		}
+		const shown = lines.slice(0, PREVIEW_LINES);
+		const hidden = nonEmptyLineCount(lines.slice(PREVIEW_LINES));
+		const rendered = shown.map((line, index) => (index === 0 ? lead : tail) + theme.fg("muted", line));
+		if (hidden > 0) {
+			rendered.push(tail + hiddenHint(hidden, theme));
+		}
+		return rendered;
+	}
+
+	invalidate(): void {
+		this.inner.invalidate?.();
+	}
 }
 
 /** 所有工具共用的渲染方式 */
@@ -505,60 +450,32 @@ function createUniformRenderers(toolName: string, base: ToolRenderers | undefine
 		renderShell: "self",
 
 		renderCall(args, theme, context: CallContext) {
-			const state = context.state;
-			if (context.executionStarted && state.startedAt === undefined) {
-				state.startedAt = Date.now();
-				state.endedAt = undefined;
-			}
-
 			const inner = base?.renderCall
-				? base.renderCall(callArgs(args), toolCallTheme(theme), innerContext(context, state.innerCall))
-				: new Text(genericCallText(toolName, args, theme), 0, 0);
-			state.innerCall = inner;
+				? base.renderCall(callArgs(args), theme, innerContext(context, context.state.innerCall))
+				: new Text(genericCallText(toolName, args), 0, 0);
+			context.state.innerCall = inner;
 			clearInnerTimer(context);
 
 			const lines = callTitle(toolName, componentLines(inner), theme);
-			const callLineCount = nonEmptyLineCount(lines);
 			const capacity = MAX_EXPANDED_LINES + CALL_HEADER_LINES;
 			const shown = lines.slice(0, capIndex(lines, capacity));
-			const rest = callLineCount - Math.min(callLineCount, capacity);
-			state.callLineCount = callLineCount;
+			const hiddenLines = nonEmptyLineCount(lines) - capacity;
+
 			const line = callLineOf(context);
 			line.setInner(inner);
 			line.setText(shown.length > 0 ? shown.join("\n") : undefined);
-			line.setTrailer(rest > 0 ? overflowHint(rest, "to collapse", theme) : "");
-			line.setSuffix("");
+			line.setTrailer(hiddenLines > 0 ? overflowHint(hiddenLines, "to collapse", theme) : "");
 			applyCallState(line, context, theme);
-			return wrapResult(line, theme, context.expanded);
+			return line;
 		},
 
 		renderResult(result: AgentToolResult<unknown>, options: ToolRenderResultOptions, theme: Theme, context: CallContext) {
-			const state = context.state;
-			if (!options.isPartial || context.isError) {
-				state.endedAt ??= Date.now();
-			}
-
 			const inner = base?.renderResult
-				? base.renderResult(result, { expanded: true, isPartial: false }, theme, innerContext(context, state.innerResult))
+				? base.renderResult(result, { expanded: true, isPartial: false }, theme, innerContext(context, context.state.innerResult))
 				: genericResult(result, theme, context.isError ? "error" : "toolOutput");
-			state.innerResult = inner;
+			context.state.innerResult = inner;
 			clearInnerTimer(context);
-
-			const hidden = hiddenLineCount(context, inner);
-			const parts: string[] = [];
-			const duration = durationText(context);
-			if (duration !== undefined) {
-				parts.push(duration);
-			}
-			if (!options.expanded && hidden > 0) {
-				parts.push(lineLabel(hidden));
-			}
-			setCallSuffix(context, formatSuffix(parts, theme));
-
-			if (!options.expanded) {
-				return new Container();
-			}
-			return panel(limitBody(inner, theme), theme);
+			return new BranchBody(inner, options.expanded);
 		},
 	};
 }

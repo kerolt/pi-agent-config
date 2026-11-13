@@ -9,15 +9,15 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import inputEditor from "./input-editor.ts";
 import minimalFooter from "./minimal-footer.ts";
 import todoPanelFold from "./todo-panel-fold.ts";
-import toolActivity from "./tool/activity.ts";
 import toolOutputLimit from "./tool/output-limit.ts";
+import transcriptMarks from "./transcript-marks.ts";
 import userMessageRail from "./user-message-rail.ts";
 
 export default function (pi: ExtensionAPI) {
   inputEditor(pi);
   minimalFooter(pi);
+  transcriptMarks(pi);
   toolOutputLimit(pi);
-  toolActivity(pi);
   todoPanelFold(pi);
   userMessageRail(pi);
 }

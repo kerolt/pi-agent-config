@@ -1,97 +1,90 @@
 /**
- * 把输入框改成 Claude Code 的样子。
+ * 把输入框改成 codex 的样子。
  *
- * 保留 Pi 默认的上下两条横线，不再铺灰色背景。第一行行首的缩进换成提示箭头，
- * 文字统一缩进箭头宽度，多行输入时输入区域随之变高。
- * 输入以 ! 开头进入 bash 模式时，箭头换成 $ 符号，提示当前会执行 shell 命令。
- * 横线固定使用灰色，不随思考强度变化。
+ * 整块铺中性灰背景，不再画上下横线；左侧一个 `›` 提示符，输入文字缩进到提示符右侧。
+ * 内容超出可视行数时，隐藏的行数写在顶部或底部的背景行里。输入为空时显示一行暗色占位文字。
+ * 输入以 ! 开头进入 bash 模式时，提示符换成 $。
  */
 
 import { CustomEditor, type ExtensionAPI, type KeybindingsManager } from "@earendil-works/pi-coding-agent";
-import { type EditorTheme, sliceByColumn, truncateToWidth, type TUI, visibleWidth } from "@earendil-works/pi-tui";
+import { type EditorTheme, type TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { currentTheme, paintBlock, replaceIndent } from "./lib/codex-style.ts";
 
-/** 提示箭头占用的列数，同时也是输入文字的缩进 */
-const PROMPT_WIDTH = 2;
+/** 提示符与输入文字的缩进列数 */
+const PROMPT_WIDTH = 3;
 
-/** 提示箭头字符与 bash 模式下替换的符号，颜色统一用灰色 */
-const PROMPT_GLYPH = "❯";
+/** 提示符字符与 bash 模式下替换的符号 */
+const PROMPT_GLYPH = "›";
 const BASH_PROMPT_GLYPH = "$";
-const PROMPT_COLOR = "muted";
 
-/** 上下横线使用的字符与颜色 */
-const BORDER_GLYPH = "─";
-const BORDER_COLOR = "muted";
+/** 输入为空时的占位文字 */
+const PLACEHOLDER = "Ask Pi to do anything";
+
+/** 编辑器内部只对外暴露了这几项 */
+type EditorInternals = {
+	renderedAutocompleteHeight: number;
+};
 
 export default function (pi: ExtensionAPI) {
 	pi.on("session_start", (_event, ctx) => {
-		const theme = ctx.ui.theme;
-		const borderColor = (text: string) => theme.fg(BORDER_COLOR, text);
+		if (!ctx.hasUI) {
+			return;
+		}
 
-		/** 与 Pi 自带的滚动提示排版一致，只替换横线字符与颜色 */
-		const scrollBorder = (direction: string, hiddenLineCount: number, width: number): string => {
-			const label = ` ${direction} ${hiddenLineCount} more `;
-			const labelWidth = visibleWidth(label);
-			if (labelWidth + 2 <= width) {
-				const leftWidth = Math.floor((width - labelWidth) / 2);
-				return (
-					BORDER_GLYPH.repeat(leftWidth) + label + BORDER_GLYPH.repeat(width - leftWidth - labelWidth)
-				);
-			}
-			const indicator = `${BORDER_GLYPH.repeat(3)} ${direction} ${hiddenLineCount} more `;
-			const remaining = width - visibleWidth(indicator);
-			if (remaining >= 0) {
-				return indicator + BORDER_GLYPH.repeat(remaining);
-			}
-			const ellipsis = "...".slice(0, width);
-			return sliceByColumn(indicator, 0, width - visibleWidth(ellipsis), true) + ellipsis;
-		};
-
-		class ArrowEditor extends CustomEditor {
+		class CodexEditor extends CustomEditor {
 			constructor(tui: TUI, editorTheme: EditorTheme, keybindings: KeybindingsManager) {
 				super(tui, editorTheme, keybindings, { paddingX: PROMPT_WIDTH });
 			}
 
-			/** 文字缩进固定为箭头宽度，主题设置不应改变它 */
+			/** 文字缩进固定为提示符宽度，主题设置不应改变它 */
 			setPaddingX(): void {
 				super.setPaddingX(PROMPT_WIDTH);
 			}
 
 			protected override renderTopBorder(width: number, hiddenLineCount: number): string {
-				return borderColor(this.borderLine(width, hiddenLineCount, "↑"));
+				const theme = currentTheme();
+				const hint = hiddenLineCount > 0 ? ` ${theme.fg("dim", `↑ ${hiddenLineCount} more`)}` : "";
+				return paintBlock(theme, truncateToWidth(hint, width, ""), width);
 			}
 
 			protected override renderBottomBorder(width: number, hiddenLineCount: number): string {
-				return borderColor(this.borderLine(width, hiddenLineCount, "↓"));
-			}
-
-			private borderLine(width: number, hiddenLineCount: number, direction: string): string {
-				return hiddenLineCount > 0 ? scrollBorder(direction, hiddenLineCount, width) : BORDER_GLYPH.repeat(width);
+				const theme = currentTheme();
+				const hint = hiddenLineCount > 0 ? ` ${theme.fg("dim", `↓ ${hiddenLineCount} more`)}` : "";
+				return paintBlock(theme, truncateToWidth(hint, width, ""), width);
 			}
 
 			render(width: number): string[] {
 				const lines = super.render(width);
-				// 与 Editor 内部一致地计算实际缩进，窄终端下会小于 PROMPT_WIDTH
+				const autocompleteHeight = (this as unknown as EditorInternals).renderedAutocompleteHeight;
+				// 第 0 行与自动补全之前的最后一行是上下留白，中间才是输入内容
+				const contentEnd = lines.length - 1 - autocompleteHeight;
 				const paddingX = Math.min(PROMPT_WIDTH, Math.max(0, Math.floor((width - 1) / 2)));
-				// 第 0 行是顶部横线，第 1 行是第一行正文
-				const contentIndex = 1;
-				const line = lines[contentIndex];
-				if (paddingX === 0 || line === undefined) {
+				if (paddingX === 0) {
 					return lines;
 				}
 
+				const theme = currentTheme();
+				const empty = this.getText().length === 0;
 				const isBashMode = this.getText().trimStart().startsWith("!");
-				const prompt = truncateToWidth(
-					theme.fg(PROMPT_COLOR, isBashMode ? BASH_PROMPT_GLYPH : PROMPT_GLYPH) + " ".repeat(PROMPT_WIDTH),
-					paddingX,
-					"",
-					true,
-				);
-				// 第一行行首的缩进替换成箭头，光标列与文字排版都保持不变
-				lines[contentIndex] = prompt + line.slice(paddingX);
+				const glyph = isBashMode ? BASH_PROMPT_GLYPH : PROMPT_GLYPH;
+
+				for (let index = 1; index < contentEnd; index++) {
+					let line = lines[index] ?? "";
+					if (index === 1) {
+						line = replaceIndent(theme, line, paddingX, glyph, "muted");
+						if (empty) {
+							// 光标已经画在提示符后面，占位文字接在它后面
+							line = line.replace(/ +$/, "");
+							const remaining = Math.max(0, width - visibleWidth(line));
+							line += truncateToWidth(` ${theme.fg("dim", PLACEHOLDER)}`, remaining, "");
+						}
+					}
+					lines[index] = paintBlock(theme, line, width);
+				}
 				return lines;
 			}
 		}
 
-		ctx.ui.setEditorComponent((tui, editorTheme, keybindings) => new ArrowEditor(tui, editorTheme, keybindings));
+		ctx.ui.setEditorComponent((tui, editorTheme, keybindings) => new CodexEditor(tui, editorTheme, keybindings));
 	});
 }
