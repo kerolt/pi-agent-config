@@ -35,6 +35,7 @@ export function currentTheme(): Theme {
 	if (theme === undefined) {
 		throw new Error("主题尚未初始化");
 	}
+
 	return theme;
 }
 
@@ -43,6 +44,7 @@ function surfaceColor(theme: Theme, surface: CodexSurface): string {
 	if (theme.appearance === "light") {
 		return surface === "editor" ? LIGHT_EDITOR : LIGHT_MESSAGE;
 	}
+
 	return surface === "editor" ? DARK_EDITOR : DARK_MESSAGE;
 }
 
@@ -66,6 +68,7 @@ export function paintBlock(
 ): string {
 	const bg = codexSurfaceAnsi(theme, surface);
 	const padding = " ".repeat(Math.max(0, width - visibleWidth(text)));
+
 	return bg + (text + padding).split(SGR_RESET).join(SGR_RESET + bg) + BG_RESET;
 }
 
@@ -81,8 +84,10 @@ export function replaceIndent(
 	if (indent <= 0 || !line.startsWith(spaces)) {
 		return line;
 	}
+
 	if (indent === 1) {
 		return theme.fg(color, glyph) + line.slice(1);
 	}
+
 	return ` ${theme.fg(color, glyph)}${" ".repeat(indent - 2)}${line.slice(indent)}`;
 }

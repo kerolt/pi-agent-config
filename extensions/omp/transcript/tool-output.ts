@@ -62,6 +62,8 @@ function trackSpinner(context: CallContext): void {
 		}
 		return;
 	}
+
+	// 所有执行中的调用行共用一个定时器，最后一项结束后停止刷新。
 	spinnerTargets.set(context.state, context.invalidate);
 	if (spinnerTimer === undefined) {
 		spinnerTimer = setInterval(() => {
@@ -74,6 +76,7 @@ function trackSpinner(context: CallContext): void {
 
 function clearSpinnerTargets(): void {
 	spinnerTargets.clear();
+
 	if (spinnerTimer !== undefined) {
 		clearInterval(spinnerTimer);
 		spinnerTimer = undefined;
@@ -89,6 +92,7 @@ function statusIcon(context: CallContext, theme: Theme): string {
 		const frame = SPINNER_FRAMES[Math.floor(Date.now() / SPINNER_INTERVAL_MS) % SPINNER_FRAMES.length]!;
 		return theme.fg("success", frame);
 	}
+
 	return context.isError ? theme.fg("error", "✗") : theme.fg("success", "•");
 }
 
@@ -129,6 +133,7 @@ class CallLine implements Component {
 		if (width <= 0) {
 			return [];
 		}
+
 		const prefix = truncateToWidth(`${CARD_INDENT}${this.icon} `, width, "");
 		this.prefixWidth = visibleWidth(prefix);
 		this.innerWidth = Math.max(1, width - this.prefixWidth);
@@ -143,16 +148,21 @@ class CallLine implements Component {
 			lines = this.content.render(this.innerWidth);
 			this.innerRows = lines.length;
 		}
+
 		const capacity = MAX_EXPANDED_LINES + 1;
 		const shown = this.expanded ? lines.slice(0, capacity) : lines;
+
+		// 鼠标事件仅转发到原组件实际显示的行，超限提示由外层处理。
 		this.innerRows = Math.min(this.innerRows, shown.length);
 		const indent = " ".repeat(this.prefixWidth);
 		const rendered = shown.map((line, index) =>
 			truncateToWidth((index === 0 ? prefix : indent) + line, width, ""),
 		);
+
 		if (this.expanded && lines.length > capacity) {
 			rendered.push(truncateToWidth(overflowHint(lines.length - capacity, currentTheme(), this.keyHint), width, "..."));
 		}
+
 		return rendered;
 	}
 
@@ -172,6 +182,7 @@ class CallLine implements Component {
 		if (typeof this.content === "string" || event.x < this.prefixWidth || event.y < 0 || event.y >= this.innerRows) {
 			return undefined;
 		}
+
 		return this.content.handleMouse?.({ ...event, x: event.x - this.prefixWidth, width: this.innerWidth, height: this.innerRows });
 	}
 }
@@ -189,11 +200,13 @@ function extractOutput(content: ToolContent): string {
 	if (cached !== undefined) {
 		return cached;
 	}
+
 	const output = content
 		.filter((part) => part.type === "text")
 		.map((part) => stripTerminalSequences(part.text ?? "").replace(/\r/g, ""))
 		.join("\n")
 		.trim();
+
 	outputCache.set(content, output);
 	return output;
 }
@@ -202,6 +215,7 @@ function displayArg(value: unknown): string {
 	if (value == null) {
 		return "...";
 	}
+
 	return typeof value === "string" ? value : JSON.stringify(value) ?? String(value);
 }
 
@@ -213,26 +227,31 @@ function builtinCallText(toolName: string, args: unknown, theme: Theme, context:
 	const path = values.file_path ?? values.path;
 	let label: string;
 	let body: string;
+
 	switch (toolName) {
 		case "bash":
 		case "powershell":
 			label = "Ran";
 			body = displayArg(values.command);
 			break;
+
 		case "read":
 			label = "Read";
 			body = displayArg(path) + formatReadLineRange(values.offset, values.limit);
 			break;
+
 		case "edit":
 		case "write":
 			label = "Edited";
 			body = displayArg(path);
 			break;
+
 		case "ls":
 			label = "Listed";
 			body = displayArg(path ?? ".");
 			if (values.limit != null) body += ` (limit ${displayArg(values.limit)})`;
 			break;
+
 		case "find":
 		case "grep":
 			label = "Searched";
@@ -240,15 +259,19 @@ function builtinCallText(toolName: string, args: unknown, theme: Theme, context:
 			if (values.glob) body += ` (${displayArg(values.glob)})`;
 			if (values.limit != null) body += ` (limit ${displayArg(values.limit)})`;
 			break;
+
 		default:
 			return undefined;
 	}
 
 	let text = `${theme.fg("success", label)} ${theme.fg("text", body)}`;
+
+	// 折叠时标记存在预览，展开后按内容、路径和主题复用高亮结果。
 	if (toolName === "write" && typeof values.content === "string" && values.content.length > 0) {
 		if (!context.expanded) {
 			return text + "\n";
 		}
+
 		let preview = context.state.writePreview;
 		if (preview === undefined || preview.path !== path || preview.content !== values.content || preview.theme !== theme) {
 			const content = values.content.replace(/\r/g, "").replace(/\t/g, "   ");
@@ -257,8 +280,10 @@ function builtinCallText(toolName: string, args: unknown, theme: Theme, context:
 			preview = { path, content: values.content, theme, text: lines.join("\n") };
 			context.state.writePreview = preview;
 		}
+
 		text += "\n\n" + preview.text;
 	}
+
 	return text;
 }
 
@@ -268,6 +293,7 @@ function genericCallText(toolName: string, args: unknown, theme: Theme): string 
 	if (args == null) {
 		return label;
 	}
+
 	const entries = typeof args === "object" && !Array.isArray(args) ? Object.entries(args) : [["args", args]];
 	const pairs = entries.map(([key, value]) => `${key}=${JSON.stringify(value) ?? String(value)}`).join(" ");
 	return pairs ? `${label} ${theme.fg("text", pairs)}` : label;
@@ -283,13 +309,16 @@ function shellResult(result: AgentToolResult<unknown>, theme: Theme, context: Ca
 	const text = extractOutput(result.content);
 	const details = result.details as BashToolDetails | undefined;
 	const lines = text ? [theme.fg(context.isError ? "error" : "toolOutput", text)] : [];
+
 	if (details?.fullOutputPath && !text.includes(details.fullOutputPath)) {
 		lines.push(theme.fg("warning", `[Full output: ${details.fullOutputPath}]`));
 	}
+
 	if (context.isPartial && details?.truncation?.truncated) {
 		const truncation = details.truncation;
 		lines.push(theme.fg("warning", `[Truncated: showing ${truncation.outputLines} of ${truncation.totalLines} lines]`));
 	}
+
 	return new Text(lines.join("\n"), 0, 0);
 }
 
@@ -311,29 +340,44 @@ class BranchBody implements Component {
 		if (width <= 0) {
 			return [];
 		}
+
 		const theme = currentTheme();
 		this.contentWidth = Math.max(1, width - BRANCH_TAIL.length);
 		const source = this.inner.render(this.contentWidth);
+
+		// 首尾空行不占预览额度，保留原数组下标用于鼠标坐标转换。
 		let end = source.length;
 		while (this.contentStart < end && isBlank(source[this.contentStart])) this.contentStart++;
 		while (end > this.contentStart && isBlank(source[end - 1])) end--;
-		const lines = source.slice(this.contentStart, end);
+
 		const capacity = this.expanded ? MAX_EXPANDED_LINES : PREVIEW_LINES;
-		const shown = lines.slice(0, capacity);
-		this.contentRows = shown.length;
-		const rendered = shown.map((line, index) => {
-			const prefix = theme.fg("dim", index === 0 ? BRANCH_LEAD : BRANCH_TAIL);
+		const shownEnd = Math.min(end, this.contentStart + capacity);
+		this.contentRows = shownEnd - this.contentStart;
+
+		const rendered: string[] = [];
+		for (let row = this.contentStart; row < shownEnd; row++) {
+			const line = source[row]!;
+			const prefix = theme.fg("dim", row === this.contentStart ? BRANCH_LEAD : BRANCH_TAIL);
 			const body = this.expanded ? line : theme.fg("dim", stripTerminalSequences(line));
-			return truncateToWidth(prefix + body, width, "");
-		});
-		const rest = lines.slice(capacity);
-		const hidden = this.expanded ? rest.length : rest.filter((line) => !isBlank(line)).length;
+			rendered.push(truncateToWidth(prefix + body, width, ""));
+		}
+
+		// 折叠提示只统计非空隐藏行，展开提示统计全部剩余行。
+		let hidden = end - shownEnd;
+		if (!this.expanded) {
+			hidden = 0;
+			for (let row = shownEnd; row < end; row++) {
+				if (!isBlank(source[row])) hidden++;
+			}
+		}
+
 		if (hidden > 0) {
 			const hint = this.expanded
 				? overflowHint(hidden, theme, this.keyHint)
 				: hiddenHint(hidden, theme, this.keyHint);
 			rendered.push(truncateToWidth(theme.fg("dim", BRANCH_TAIL) + hint, width, "..."));
 		}
+
 		return rendered;
 	}
 
@@ -349,6 +393,8 @@ class BranchBody implements Component {
 		if (event.x < BRANCH_TAIL.length || event.y < 0 || event.y >= this.contentRows) {
 			return undefined;
 		}
+
+		// 原组件使用完整正文坐标，需要补回已隐藏的开头空行。
 		return this.inner.handleMouse?.({
 			...event,
 			x: event.x - BRANCH_TAIL.length,
@@ -376,6 +422,7 @@ function createUniformRenderers(toolName: string, base: ToolRenderers | undefine
 			else {
 				content = genericCallText(toolName, args, theme);
 			}
+
 			const line = context.state.callLine ??= new CallLine(context.keyHint);
 			line.update(content, context, theme);
 			trackSpinner(context);
@@ -399,6 +446,7 @@ function createUniformRenderers(toolName: string, base: ToolRenderers | undefine
 			else {
 				inner = genericResult(result, theme, context.isError ? "error" : "toolOutput");
 			}
+
 			return new BranchBody(inner, options.expanded, context.keyHint);
 		},
 	};
@@ -407,5 +455,6 @@ function createUniformRenderers(toolName: string, base: ToolRenderers | undefine
 export default function (pi: ExtensionAPI) {
 	pi.on("session_start", clearSpinnerTargets);
 	pi.on("session_shutdown", clearSpinnerTargets);
+
 	pi.registerToolRenderer((toolName, next) => createUniformRenderers(toolName, next()));
 }

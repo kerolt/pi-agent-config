@@ -65,6 +65,7 @@ function withUserPrompt(theme: Theme, line: string): string {
 	if (chars[0] === " " && chars[1] === USER_GLYPH && chars[2] === " ") {
 		return line;
 	}
+
 	return line.replace(
 		/^((?:\x1b\][^\x07]*\x07|\x1b\[[0-9;]*m)*) {3}/,
 		(_match, prefix: string) => `${prefix} ${theme.fg("muted", USER_GLYPH)} `,
@@ -79,17 +80,21 @@ function markUserLines(theme: Theme, lines: string[]): string[] {
 	if (lines.length === 0) {
 		return lines;
 	}
+
 	const width = visibleWidth(lines[0]!);
 	if (width === 0) {
 		return lines;
 	}
+
 	const stripped = lines.map((line) =>
 		line.replace(/\x1b\[48;[0-9;]*m/g, "").split("\x1b[49m").join(""),
 	);
+
 	const index = firstVisibleLine(stripped);
 	if (index >= 0) {
 		stripped[index] = withUserPrompt(theme, stripped[index]!);
 	}
+
 	return stripped.map((line) => {
 		// OSC 133 标记必须留在行首，否则 Pi 剥不掉，会直接写到终端里
 		const lead = line.match(OSC133_PREFIX)?.[0] ?? "";
@@ -103,6 +108,7 @@ function markTextBlock(markdown: TextBlock): void {
 	if (target[TEXT_PATCH_FLAG]) {
 		return;
 	}
+
 	const originalRender = markdown.render;
 	const patchedRender = function (this: TextBlock, width: number): string[] {
 		const lines = originalRender.call(this, width);
@@ -110,8 +116,10 @@ function markTextBlock(markdown: TextBlock): void {
 		if (index >= 0) {
 			lines[index] = replaceIndent(currentTheme(), lines[index]!, MARK_INDENT, ASSISTANT_GLYPH, "muted");
 		}
+
 		return lines;
 	};
+
 	Object.defineProperty(markdown, TEXT_PATCH_FLAG, { value: true });
 	markdown.render = patchedRender;
 }
@@ -121,14 +129,18 @@ function patchUserMessage(userClass: UserClass): void {
 	if (prototype[USER_PATCH_TOKEN_KEY] === USER_PATCH_TOKEN) {
 		return;
 	}
+
 	Object.defineProperty(prototype, USER_PATCH_TOKEN_KEY, { value: USER_PATCH_TOKEN, configurable: true });
+
 	const originalRender = prototype.render;
 	const patchedRender = function (this: UserClass["prototype"], width: number): string[] {
 		if (this.outputPad !== MARK_INDENT) {
 			this.setOutputPad(MARK_INDENT);
 		}
+
 		return markUserLines(currentTheme(), originalRender.call(this, width));
 	};
+
 	prototype.render = patchedRender;
 }
 
@@ -137,6 +149,7 @@ function patchAssistantMessage(assistantClass: AssistantClass): void {
 	if (prototype[ASSISTANT_PATCH_FLAG]) {
 		return;
 	}
+
 	const originalUpdateContent = prototype.updateContent;
 	const patchedUpdateContent = function (
 		this: AssistantClass["prototype"],
@@ -148,17 +161,21 @@ function patchAssistantMessage(assistantClass: AssistantClass): void {
 			this.outputPad = MARK_INDENT;
 			this.markdownSlots = [];
 		}
+
 		originalUpdateContent.call(this, message, isStreaming);
 		const slots = this.markdownSlots;
 		if (!Array.isArray(slots)) {
 			throw new Error("助手消息组件里没有 markdownSlots，正文标记无法生效");
 		}
+
+		// updateContent 可能复用 Markdown，只给正文实例安装一次标记处理。
 		for (const slot of slots) {
 			if (slot.kind === "text") {
 				markTextBlock(slot.markdown);
 			}
 		}
 	};
+
 	Object.defineProperty(prototype, ASSISTANT_PATCH_FLAG, { value: true });
 	prototype.updateContent = patchedUpdateContent;
 }
@@ -171,6 +188,7 @@ export default function (pi: ExtensionAPI) {
 		if (userClass === undefined || assistantClass === undefined) {
 			throw new Error("打包入口里缺少 UserMessageComponent 或 AssistantMessageComponent");
 		}
+
 		patchUserMessage(userClass);
 		patchAssistantMessage(assistantClass);
 	});

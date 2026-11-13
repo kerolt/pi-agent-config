@@ -39,12 +39,14 @@ function formatElapsed(ms: number): string {
 	const hours = Math.floor(totalSeconds / 3600);
 	const minutes = Math.floor((totalSeconds % 3600) / 60);
 	const seconds = totalSeconds % 60;
+
 	if (hours > 0) {
 		return `${hours}h${String(minutes).padStart(2, "0")}m${String(seconds).padStart(2, "0")}s`;
 	}
 	if (minutes > 0) {
 		return `${minutes}m${String(seconds).padStart(2, "0")}s`;
 	}
+
 	return `${seconds}s`;
 }
 
@@ -53,6 +55,7 @@ function currentElapsed(turnActive: boolean): string | undefined {
 	if (turnActive && turnStartedAt !== undefined) {
 		return formatElapsed(Date.now() - turnStartedAt);
 	}
+
 	return turnActive || lastTurnElapsedMs === undefined ? undefined : formatElapsed(lastTurnElapsedMs);
 }
 
@@ -61,6 +64,7 @@ function currentTotal(turnActive: boolean): string | undefined {
 	if (turnStartedAt !== undefined) {
 		return formatElapsed(totalTurnElapsedMs + (Date.now() - turnStartedAt));
 	}
+
 	return turnActive || lastTurnElapsedMs === undefined ? undefined : formatElapsed(totalTurnElapsedMs);
 }
 
@@ -76,6 +80,7 @@ function startTicker(): void {
 	if (ticker !== undefined) {
 		return;
 	}
+
 	ticker = setInterval(() => requestRender?.(), 1000);
 }
 
@@ -93,6 +98,7 @@ function formatTokens(count: number): string {
 	if (count < 10000000) {
 		return `${(count / 1000000).toFixed(1)}M`;
 	}
+
 	return `${Math.round(count / 1000000)}M`;
 }
 
@@ -102,14 +108,17 @@ function shortenHome(cwd: string): string {
 	if (!home) {
 		return cwd;
 	}
+
 	const trimmed = home.replace(/[/\\]+$/, "");
 	if (cwd === trimmed) {
 		return "~";
 	}
+
 	// 必须是家目录下的路径，同级的相似前缀不替换
 	if (!cwd.startsWith(`${trimmed}/`) && !cwd.startsWith(`${trimmed}\\`)) {
 		return cwd;
 	}
+
 	return `~${cwd.slice(trimmed.length)}`;
 }
 
@@ -127,8 +136,10 @@ export default function (pi: ExtensionAPI) {
 		turnStartedAt = undefined;
 		lastTurnElapsedMs = undefined;
 		totalTurnElapsedMs = 0;
+
 		ctx.ui.setFooter((tui, theme, footerData) => {
 			requestRender = () => tui.requestRender();
+
 			const empty: UsageTotals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 			let cachedKey = "";
 			let totals = empty;
@@ -142,8 +153,10 @@ export default function (pi: ExtensionAPI) {
 				if (key === cachedKey) {
 					return { totals, cacheHitRate };
 				}
+
 				const next: UsageTotals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 				let hit: number | undefined;
+
 				for (const entry of sessionManager.getEntries()) {
 					const record = entry as {
 						type: string;
@@ -157,19 +170,23 @@ export default function (pi: ExtensionAPI) {
 					if (!usage) {
 						continue;
 					}
+
 					next.input += usage.input ?? 0;
 					next.output += usage.output ?? 0;
 					next.cacheRead += usage.cacheRead ?? 0;
 					next.cacheWrite += usage.cacheWrite ?? 0;
+
 					// 缓存命中率看最后一次模型回复：命中量占整个提示词的比例
 					if (record.type === "message" && record.message?.role === "assistant") {
 						const prompt = (usage.input ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0);
 						hit = prompt > 0 ? ((usage.cacheRead ?? 0) / prompt) * 100 : undefined;
 					}
 				}
+
 				cachedKey = key;
 				totals = next;
 				cacheHitRate = hit;
+
 				return { totals, cacheHitRate };
 			};
 
@@ -213,8 +230,8 @@ export default function (pi: ExtensionAPI) {
 						.filter((item): item is string => item !== undefined)
 						.join("  ");
 
+					// 左侧空间不足时只展示右侧数据，避免模型名和路径挤占用量信息。
 					const gap = 2;
-					// 左侧剩下少于这么多列时就整块让给右侧数据
 					const minLeftColumns = 12;
 					const rightWidth = visibleWidth(right);
 					const lines: string[] = [];
@@ -236,6 +253,7 @@ export default function (pi: ExtensionAPI) {
 							.join(" ");
 						lines.push(truncateToWidth(text, width, "..."));
 					}
+
 					return lines;
 				},
 			};
@@ -247,16 +265,19 @@ export default function (pi: ExtensionAPI) {
 		turnStartedAt = Date.now();
 		startTicker();
 	});
+
 	pi.on("agent_settled", () => {
 		if (turnStartedAt === undefined) {
 			return;
 		}
+
 		lastTurnElapsedMs = Date.now() - turnStartedAt;
 		totalTurnElapsedMs += lastTurnElapsedMs;
 		turnStartedAt = undefined;
 		stopTicker();
 		requestRender?.();
 	});
+
 	pi.on("session_shutdown", () => {
 		stopTicker();
 		turnStartedAt = undefined;

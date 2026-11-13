@@ -8,6 +8,7 @@ import toolOutputLimit from "./transcript/tool-output.ts";
 export default function (pi: ExtensionAPI) {
   inputEditor(pi);
   minimalFooter(pi);
+
   transcriptMarks(pi);
   toolOutputLimit(pi);
   stickyUserMessage(pi);

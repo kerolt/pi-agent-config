@@ -15,6 +15,7 @@ export function bundleEntry(): string {
 	if (!cliEntry) {
 		throw new Error("无法确定 Pi 的命令行入口");
 	}
+
 	const entry = join(
 		dirname(cliEntry),
 		"..",
@@ -27,6 +28,7 @@ export function bundleEntry(): string {
 	if (!existsSync(entry)) {
 		throw new Error(`找不到 Pi 的打包入口 ${entry}`);
 	}
+
 	return entry;
 }
 

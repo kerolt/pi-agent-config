@@ -59,9 +59,11 @@ export default function (pi: ExtensionAPI) {
 				if (typeof autocompleteHeight !== "number") {
 					throw new Error("编辑器内部字段 renderedAutocompleteHeight 不存在，输入框背景无法绘制");
 				}
+
 				// 第 0 行与自动补全之前的最后一行是上下留白，中间才是输入内容
 				const contentEnd = lines.length - 1 - autocompleteHeight;
 				const paddingX = Math.min(PROMPT_WIDTH, Math.max(0, Math.floor((width - 1) / 2)));
+
 				const theme = currentTheme();
 				const empty = this.getText().length === 0;
 				const isBashMode = this.getText().trimStart().startsWith("!");
@@ -72,14 +74,17 @@ export default function (pi: ExtensionAPI) {
 					if (index === 1 && paddingX > 0) {
 						line = replaceIndent(theme, line, paddingX, glyph, "muted");
 					}
+
 					if (index === 1 && empty) {
 						// 光标已经画在提示符后面，占位文字接在它后面
 						line = line.replace(/ +$/, "");
 						const remaining = Math.max(0, width - visibleWidth(line));
 						line += truncateToWidth(` ${theme.fg("muted", PLACEHOLDER)}`, remaining, "");
 					}
+
 					lines[index] = paintBlock(theme, line, width, "editor");
 				}
+
 				return lines;
 			}
 		}
