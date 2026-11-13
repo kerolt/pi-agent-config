@@ -451,6 +451,8 @@ export default function (pi: ExtensionAPI) {
 		state.cache = undefined;
 		state.view = undefined;
 		state.stickyTop = undefined;
+		// 重新创建吸附条，扩展重新加载后能用上新的配色
+		state.sticky = undefined;
 		state.broken = false;
 		state.notify = (message, type) => ctx.ui.notify(message, type);
 

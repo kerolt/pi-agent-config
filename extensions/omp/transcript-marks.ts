@@ -10,12 +10,13 @@
  */
 
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
-import { stripTerminalSequences } from "@earendil-works/pi-tui";
-import { codexBlockAnsi, currentTheme, replaceIndent } from "./lib/codex-style.ts";
+import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
+import { currentTheme, paintBlock, replaceIndent } from "./lib/codex-style.ts";
 import { loadBundle } from "./lib/pi-bundle.ts";
 
 /** 打补丁的标记，避免重复包装同一批方法 */
-const USER_PATCH_FLAG = Symbol.for("pi.ompi.codex.user");
+const USER_PATCH_TOKEN_KEY = Symbol.for("pi.ompi.codex.user.patch");
+const USER_PATCH_TOKEN = Symbol("pi.ompi.codex.user.patch.token");
 const ASSISTANT_PATCH_FLAG = Symbol.for("pi.ompi.codex.assistant");
 const TEXT_PATCH_FLAG = Symbol.for("pi.ompi.codex.text");
 
@@ -26,9 +27,6 @@ const MARK_INDENT = 3;
 const USER_GLYPH = "›";
 const ASSISTANT_GLYPH = "•";
 
-/** 用户消息里的提示符占用的列数，与输入框的缩进一致 */
-const USER_PROMPT_WIDTH = MARK_INDENT;
-
 type TextBlock = { render: (width: number) => string[] };
 
 type UserClass = {
@@ -37,7 +35,7 @@ type UserClass = {
 		outputPad: number;
 		setOutputPad: (padding: number) => void;
 		render: (width: number) => string[];
-		[USER_PATCH_FLAG]?: boolean;
+		[USER_PATCH_TOKEN_KEY]?: symbol;
 	};
 };
 
@@ -58,34 +56,38 @@ function firstVisibleLine(lines: string[]): number {
 	return lines.findIndex((line) => stripTerminalSequences(line).trim() !== "");
 }
 
-/** 在背景色之后把行首的三个空格换成提示符 */
-function insertPrompt(theme: Theme, line: string, bg: string): string {
-	const at = line.indexOf(bg);
-	if (at < 0) {
+/** 在第一条非空行的行首补上提示符，已经有的不再重复 */
+function withUserPrompt(theme: Theme, line: string): string {
+	const chars = [...stripTerminalSequences(line)];
+	if (chars[0] === " " && chars[1] === USER_GLYPH && chars[2] === " ") {
 		return line;
 	}
-	const head = line.slice(0, at + bg.length);
-	const tail = line.slice(at + bg.length);
-	if (!tail.startsWith(" ".repeat(USER_PROMPT_WIDTH))) {
-		return line;
-	}
-	// 提示符的颜色复位会同时清掉背景，复位后重新打开
-	return head + ` ${theme.fg("muted", USER_GLYPH)}${bg} ` + tail.slice(USER_PROMPT_WIDTH);
+	return line.replace(
+		/^((?:\x1b\][^\x07]*\x07|\x1b\[[0-9;]*m)*) {3}/,
+		(_match, prefix: string) => `${prefix} ${theme.fg("muted", USER_GLYPH)} `,
+	);
 }
 
-/** 用户消息：换背景色并加上提示符 */
+/**
+ * 用户消息：整行重铺中性灰背景并加上提示符。
+ * 先把所有背景序列剥掉，旧版本已经铺过的背景色在扩展重新加载后也能被覆盖。
+ */
 function markUserLines(theme: Theme, lines: string[]): string[] {
-	const themed = theme.getBgAnsi("userMessageBg");
-	const block = codexBlockAnsi(theme);
-	// 行内的整行复位会清掉背景，复位后重新打开
-	const recolored = lines.map((line) =>
-		line.split(themed).join(block).split("\x1b[0m").join(`\x1b[0m${block}`),
-	);
-	const index = firstVisibleLine(recolored);
-	if (index >= 0) {
-		recolored[index] = insertPrompt(theme, recolored[index]!, block);
+	if (lines.length === 0) {
+		return lines;
 	}
-	return recolored;
+	const width = visibleWidth(lines[0]!);
+	if (width === 0) {
+		return lines;
+	}
+	const stripped = lines.map((line) =>
+		line.replace(/\x1b\[48;[0-9;]*m/g, "").split("\x1b[49m").join(""),
+	);
+	const index = firstVisibleLine(stripped);
+	if (index >= 0) {
+		stripped[index] = withUserPrompt(theme, stripped[index]!);
+	}
+	return stripped.map((line) => paintBlock(theme, line, width));
 }
 
 /** 助手正文块：第一条非空行换成 `•` 标记 */
@@ -109,9 +111,10 @@ function markTextBlock(markdown: TextBlock): void {
 
 function patchUserMessage(userClass: UserClass): void {
 	const prototype = userClass.prototype;
-	if (prototype[USER_PATCH_FLAG]) {
+	if (prototype[USER_PATCH_TOKEN_KEY] === USER_PATCH_TOKEN) {
 		return;
 	}
+	Object.defineProperty(prototype, USER_PATCH_TOKEN_KEY, { value: USER_PATCH_TOKEN, configurable: true });
 	const originalRender = prototype.render;
 	const patchedRender = function (this: UserClass["prototype"], width: number): string[] {
 		if (this.outputPad !== MARK_INDENT) {
@@ -119,7 +122,6 @@ function patchUserMessage(userClass: UserClass): void {
 		}
 		return markUserLines(currentTheme(), originalRender.call(this, width));
 	};
-	Object.defineProperty(prototype, USER_PATCH_FLAG, { value: true });
 	prototype.render = patchedRender;
 }
 
