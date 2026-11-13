@@ -7,7 +7,7 @@
   },
   "skills": [],
   "packages": [
-    "git:github.com/kerolt/pi-config-sync",
+    // "git:github.com/kerolt/pi-config-sync",
     "git:github.com/kerolt/pi-ssh-image-clipboard",
     "npm:@agnishc/edb-agent-steer",
     "npm:@ff-labs/pi-fff",
@@ -40,6 +40,9 @@
   "deviceId": "9b738b18-1183-4dcb-be71-defb9b972afb",
   "fullscreenWheelScrollLines": 1,
   "fullscreenExitOutput": "resume-hint",
+  "lastChangelogVersion": "1.5.2",
+  "defaultProvider": "magpie",
+  "defaultModel": "opencode-go/deepseek-v4.1-flash",
   "extensionChangelogVersions": {
     "{\"source\":\"npm:@agnishc/edb-agent-steer\",\"scope\":\"user\"}": "0.21.1",
     "{\"source\":\"npm:pi-subagents\",\"scope\":\"user\"}": "0.88.0",
