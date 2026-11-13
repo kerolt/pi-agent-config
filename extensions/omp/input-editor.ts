@@ -44,13 +44,13 @@ export default function (pi: ExtensionAPI) {
 			protected override renderTopBorder(width: number, hiddenLineCount: number): string {
 				const theme = currentTheme();
 				const hint = hiddenLineCount > 0 ? ` ${theme.fg("dim", `↑ ${hiddenLineCount} more`)}` : "";
-				return paintBlock(theme, truncateToWidth(hint, width, ""), width);
+				return paintBlock(theme, truncateToWidth(hint, width, ""), width, "editor");
 			}
 
 			protected override renderBottomBorder(width: number, hiddenLineCount: number): string {
 				const theme = currentTheme();
 				const hint = hiddenLineCount > 0 ? ` ${theme.fg("dim", `↓ ${hiddenLineCount} more`)}` : "";
-				return paintBlock(theme, truncateToWidth(hint, width, ""), width);
+				return paintBlock(theme, truncateToWidth(hint, width, ""), width, "editor");
 			}
 
 			render(width: number): string[] {
@@ -76,9 +76,9 @@ export default function (pi: ExtensionAPI) {
 						// 光标已经画在提示符后面，占位文字接在它后面
 						line = line.replace(/ +$/, "");
 						const remaining = Math.max(0, width - visibleWidth(line));
-						line += truncateToWidth(` ${theme.fg("dim", PLACEHOLDER)}`, remaining, "");
+						line += truncateToWidth(` ${theme.fg("muted", PLACEHOLDER)}`, remaining, "");
 					}
-					lines[index] = paintBlock(theme, line, width);
+					lines[index] = paintBlock(theme, line, width, "editor");
 				}
 				return lines;
 			}
