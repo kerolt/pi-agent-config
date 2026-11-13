@@ -1,30 +1,35 @@
 /**
- * 整屏模式下 transcript 右侧的用户消息刻度条。
+ * 整屏模式下 transcript 的用户消息导航。
  *
  * 参考 dsh-tui 的 turn navigator：右侧留出两列，每条用户消息一个刻度，刻度位置只表示会话顺序，
  * 不按滚动比例伸缩。占据视口顶行的那条消息显示为 `━━`，其余显示为 ` ─`。刻度列上下各有一个
  * ` ▴` 与 ` ▾`，分别跳到视口上方最近、视口下方最近且滚得到的那条消息。点击刻度按内容行号跳转，
  * 目标消息落到视口顶部。
  *
- * 刻度条与 transcript 并排靠的是改写布局根：把布局根里 transcript 那一项换成
- * HStack(transcript, 刻度条)，正文因此让出两列，不会被刻度条覆盖。
+ * 当前用户消息滚出视口顶部后，它的首行以同样的灰底固定在 transcript 顶部，点击回到这条消息的
+ * 起始行。吸附条只在需要时占一行，其余时候让出整行给正文。
+ *
+ * 刻度条与吸附条靠改写布局根装上：把布局根里 transcript 那一项换成
+ * VStack(吸附条, HStack(transcript, 刻度条))，正文因此让出两列，不会被刻度条覆盖。
  *
  * 每条消息的起始行直接从布局帧里读，不需要自己再排一遍：帧里带着滚动盒子这一帧渲染出的正文行，
  * 用户消息的首行由 Pi 自己打了 OSC 133 提示符标记，本扩展把这个标记再加一个，扫描行首就能
  * 把用户消息与同样带标记的助手消息区分开。依赖的内部事实有四件：
  *
  * - 布局根是 Stack，entries 与 children 同步，可以用 clear 与 addChild 重新排列；
- * - 布局节点用 Symbol.for 作键，本扩展导入的 pi-tui 建出来的 HStack 能被 Pi 自己的排版识别；
+ * - 布局节点用 Symbol.for 作键，本扩展导入的 pi-tui 建出来的 VStack 与 HStack 能被 Pi 自己的排版识别；
  * - TuiAltScreen.currentLayout 是最近一帧的排版结果，帧里的 scrollContentLines 就是那一帧的正文；
  * - 渲染时带头的 OSC 133 序列在写到屏幕上之前会被剥掉，重复一份不影响显示与排版宽度。
  *
- * 普通模式（transcript 在终端回滚区里）没有布局根，刻度条不出现。
+ * 普通模式（transcript 在终端回滚区里）没有布局根，刻度条与吸附条都不出现。
  */
 
 import {
 	HStack,
 	Key,
+	VStack,
 	isViewportTUI,
+	stripTerminalSequences,
 	truncateToWidth,
 	visibleWidth,
 	type Component,
@@ -33,6 +38,7 @@ import {
 	type TuiMouseEventResult,
 } from "@earendil-works/pi-tui";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import { paintBlock } from "./lib/codex-style.ts";
 import { loadBundle } from "./lib/pi-bundle.ts";
 
 /** 刻度条占用的列数，等于最宽刻度的宽度 */
@@ -65,6 +71,9 @@ const STATE_KEY = Symbol.for("pi.ompi.user-rail");
 
 /** 标记已经包装过的 HStack，避免重复包装 */
 const STACK_MARK = Symbol.for("pi.ompi.user-rail.stack");
+
+/** 标记外层的 VStack，吸附条与刻度条都装在里面 */
+const STICKY_MARK = Symbol.for("pi.ompi.user-rail.sticky");
 
 /** 标记已经给用户消息补过首行标记的原型方法 */
 const TURN_MARK_FLAG = Symbol.for("pi.ompi.user-rail.turn-mark");
@@ -124,6 +133,8 @@ type Turn = { top: number };
 type RailView = {
 	frame: LayoutFrame;
 	turns: Turn[];
+	/** 这一帧的正文行，吸附条从这里取消息的首行 */
+	lines: readonly string[];
 	/** 视口高度 */
 	viewportRows: number;
 	/** 文档总高度 */
@@ -155,6 +166,10 @@ type RailState = {
 	transcript: ScrollViewLike | undefined;
 	/** 刻度条组件本身，扩展重新加载后继续复用 */
 	rail: Component | undefined;
+	/** 吸附条组件本身，扩展重新加载后继续复用 */
+	sticky: Component | undefined;
+	/** 吸附条当前指向的消息起始行，点击时用它跳转 */
+	stickyTop: number | undefined;
 	/** 最近一帧的测量结果与刻度布局，点击时按它们算目标行 */
 	view: RailView | undefined;
 	geometry: RailGeometry | undefined;
@@ -175,6 +190,8 @@ function railState(): RailState {
 		tui: undefined,
 		transcript: undefined,
 		rail: undefined,
+		sticky: undefined,
+		stickyTop: undefined,
 		view: undefined,
 		geometry: undefined,
 		cache: undefined,
@@ -307,6 +324,7 @@ function measure(state: RailState): RailView | undefined {
 	const view: RailView = {
 		frame,
 		turns: collectTurns(lines),
+		lines,
 		viewportRows: Math.max(0, Math.floor(scrollBox.rect.height)),
 		contentHeight: lines.length,
 	};
@@ -472,12 +490,127 @@ function createRail(state: RailState): Component {
 	};
 }
 
-/** 布局根里已经包装过的 HStack */
-function findWrappedStack(root: StackLike): StackLike | undefined {
+/** 当前该吸附在顶部的用户消息；消息首行还在视口内时不吸附 */
+function stickyTarget(state: RailState): { turn: Turn; line: string } | undefined {
+	const view = measure(state);
+	const transcript = state.transcript;
+	if (view === undefined || transcript === undefined) {
+		return undefined;
+	}
+	const scrollTop = transcript.scrollTop;
+	const index = activeIndexOf(view.turns, scrollTop);
+	const turn = view.turns[index];
+	if (turn === undefined) {
+		return undefined;
+	}
+	const first = messageFirstLine(view, index);
+	// 首行本身还在视口里时不重复画一块吸附条
+	if (first.row >= scrollTop) {
+		return undefined;
+	}
+	return { turn, line: first.line };
+}
+
+/** 一条用户消息的第一条非空行，吸附条直接复用它的配色与提示符 */
+function messageFirstLine(view: RailView, index: number): { row: number; line: string } {
+	const start = view.turns[index]?.top ?? 0;
+	const end = view.turns[index + 1]?.top ?? view.lines.length;
+	for (let row = start; row < end; row++) {
+		const line = view.lines[row];
+		if (line !== undefined && stripTerminalSequences(line).trim() !== "") {
+			return { row, line };
+		}
+	}
+	return { row: start, line: view.lines[start] ?? "" };
+}
+
+/**
+ * 吸附条：把用户消息的首行按当前宽度重新铺成灰底。
+ * 这一行原本按 transcript 的宽度画好，带着自己的背景与行尾复位；
+ * 先剥掉这些，再用当前宽度重新铺满。
+ */
+function createSticky(state: RailState): Component {
+	return {
+		invalidate(): void {},
+
+		render(width: number): string[] {
+			const target = stickyTarget(state);
+			if (target === undefined) {
+				state.stickyTop = undefined;
+				return [];
+			}
+			const line = target.line.split("\x1b[49m").join("");
+			const text = truncateToWidth(line, width, "…").replace(/ +$/, "");
+			state.stickyTop = target.turn.top;
+			return [paintBlock(currentTheme(), text, width)];
+		},
+
+		handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+			const top = state.stickyTop;
+			if (top === undefined || event.button !== "left" || event.type !== "click") {
+				return undefined;
+			}
+			state.transcript?.scrollTo(top);
+			state.tui?.requestRender();
+			return { handled: true, render: true };
+		},
+	};
+}
+
+/** 把 transcript 与刻度条并排成一个 HStack */
+function createTranscriptStack(state: RailState, transcript: ScrollViewLike, rail: Component): StackLike {
+	const stack = new HStack([
+		{ component: transcript as unknown as Component, basis: 0, grow: 1, shrink: 1, minSize: 1 },
+		{
+			component: rail,
+			basis: RAIL_WIDTH,
+			grow: 0,
+			shrink: 0,
+			minSize: 0,
+			visible: (viewport) => {
+				const view = measure(state);
+				return view !== undefined && railEligible(state, view, viewport.width);
+			},
+		},
+	]);
+	Object.defineProperty(stack, STACK_MARK, { value: true });
+	return stack as unknown as StackLike;
+}
+
+/** 已经装好的包装结构：外层 VStack 或早期版本留下的 HStack */
+type WrappedTranscript = {
+	hstack: StackLike;
+	transcript: Component & ScrollViewLike;
+	outer: boolean;
+};
+
+/** 从一项组件里认出包装结构 */
+function findWrap(component: Component): WrappedTranscript | undefined {
+	const marked = component as Component & { [STICKY_MARK]?: boolean; [STACK_MARK]?: boolean };
+	if (marked[STICKY_MARK] === true) {
+		const inner = (component as unknown as StackLike).entries.find(
+			(entry) => (entry.component as Component & { [STACK_MARK]?: boolean })[STACK_MARK] === true,
+		);
+		const wrapped = inner === undefined ? undefined : findWrap(inner.component);
+		return wrapped === undefined ? undefined : { ...wrapped, outer: true };
+	}
+	if (marked[STACK_MARK] === true) {
+		const stack = component as unknown as StackLike;
+		const transcript = stack.entries[0]?.component;
+		if (transcript === undefined || !isTranscript(transcript)) {
+			return undefined;
+		}
+		return { hstack: stack, transcript, outer: false };
+	}
+	return undefined;
+}
+
+/** 在布局根里找已经包装过的那一项 */
+function findWrapped(root: StackLike): WrappedTranscript | undefined {
 	for (const entry of root.entries) {
-		const component = entry.component as Component & { [STACK_MARK]?: true };
-		if (component[STACK_MARK] === true) {
-			return component as unknown as StackLike;
+		const wrapped = findWrap(entry.component);
+		if (wrapped !== undefined) {
+			return wrapped;
 		}
 	}
 	return undefined;
@@ -497,46 +630,53 @@ function entryOptions(entry: StackEntryLike): Omit<StackEntryLike, "component"> 
 
 function failStructure(state: RailState): void {
 	state.broken = true;
-	state.notify?.("布局根的结构与预期不同，用户消息刻度条未生效", "error");
+	state.notify?.("布局根的结构与预期不同，用户消息刻度条与吸附条未生效", "error");
 }
 
 /**
- * 把布局根里 transcript 那一项换成 HStack(transcript, 刻度条)。
+ * 把布局根里 transcript 那一项换成 VStack(吸附条, HStack(transcript, 刻度条))。
  *
  * 布局根除 transcript 之外的条目（输入区与页脚的容器）原样搬回来。包装完成后 Pi 按新的布局
- * 帧排版，正文少两列，滚动、选择与滚轮都不受影响。
+ * 帧排版，正文少两列，滚动、选择与滚轮都不受影响。已经装过 HStack 的旧结构只补上外层 VStack。
  */
 function install(state: RailState, tui: RailHost, root: StackLike): void {
 	const entries = [...root.entries];
-	const index = entries.findIndex((entry) => isTranscript(entry.component));
+	const index = entries.findIndex((entry) => isTranscript(entry.component) || findWrap(entry.component) !== undefined);
 	if (index < 0) {
 		failStructure(state);
 		return;
 	}
-	const transcript = entries[index]!.component as Component & ScrollViewLike;
+	const current = entries[index]!;
+	const existing = findWrap(current.component);
+	const transcript = existing?.transcript ?? (current.component as Component & ScrollViewLike);
 	const rail = state.rail ?? createRail(state);
 	state.rail = rail;
+	const sticky = state.sticky ?? createSticky(state);
+	state.sticky = sticky;
 
-	const stack = new HStack([
-		{ component: transcript, basis: 0, grow: 1, shrink: 1, minSize: 1 },
+	if (existing?.outer === true) {
+		state.transcript = transcript;
+		return;
+	}
+
+	const hstack = existing?.hstack ?? createTranscriptStack(state, transcript, rail);
+	const outer = new VStack([
 		{
-			component: rail,
-			basis: RAIL_WIDTH,
+			component: sticky,
+			basis: "auto",
 			grow: 0,
 			shrink: 0,
 			minSize: 0,
-			visible: (viewport) => {
-				const view = measure(state);
-				return view !== undefined && railEligible(state, view, viewport.width);
-			},
+			visible: () => stickyTarget(state) !== undefined,
 		},
+		{ component: hstack as unknown as Component, basis: 0, grow: 1, shrink: 1, minSize: 1 },
 	]);
-	Object.defineProperty(stack, STACK_MARK, { value: true });
+	Object.defineProperty(outer, STICKY_MARK, { value: true });
 
 	root.clear();
 	entries.forEach((entry, position) => {
 		if (position === index) {
-			root.addChild(stack, { basis: 0, grow: 1, shrink: 1, minSize: 1 });
+			root.addChild(outer, { basis: 0, grow: 1, shrink: 1, minSize: 1 });
 			return;
 		}
 		root.addChild(entry.component, entryOptions(entry));
@@ -559,11 +699,12 @@ function ensureInstalled(state: RailState, tui: TUI): void {
 		return;
 	}
 	state.tui = host;
-	const wrapped = findWrappedStack(root);
+	const wrapped = findWrapped(root);
 	if (wrapped !== undefined) {
-		const transcript = wrapped.entries[0]?.component;
-		if (transcript !== undefined && isTranscript(transcript)) {
-			state.transcript = transcript as Component & ScrollViewLike;
+		state.transcript = wrapped.transcript;
+		// 旧版本只装了 HStack，补上吸附条
+		if (!wrapped.outer) {
+			install(state, host, root);
 		}
 		return;
 	}
@@ -604,6 +745,7 @@ export default function (pi: ExtensionAPI) {
 		state.cache = undefined;
 		state.view = undefined;
 		state.geometry = undefined;
+		state.stickyTop = undefined;
 		state.notify = (message, type) => ctx.ui.notify(message, type);
 
 		if (!ctx.hasUI) {
