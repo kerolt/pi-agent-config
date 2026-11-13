@@ -8,8 +8,8 @@
  * 吸附条只在需要时占一行。旧版本装过右侧刻度条的结构会被换成这个更简单的外层。
  *
  * 每条消息的起始行直接从布局帧里读：帧里带着滚动盒子这一帧渲染出的正文行，用户消息的首行由 Pi
- * 自己打了 OSC 133 提示符标记，本扩展把这个标记再加一个，扫描行首就能把用户消息与同样带标记的
- * 助手消息区分开。依赖的内部事实有四件：
+ * 自己打了 OSC 133 提示符标记，本扩展把这个标记再加一个。行内叠了两份以上标记的就是用户消息，
+ * 标记前面可能带着背景色序列，所以不能只看行首。依赖的内部事实有四件：
  *
  * - 布局根是 Stack，entries 与 children 同步，可以用 clear 与 addChild 重新排列；
  * - 布局节点用 Symbol.for 作键，本扩展导入的 pi-tui 建出来的 VStack 能被 Pi 自己的排版识别；
@@ -35,7 +35,6 @@ import { loadBundle } from "./lib/pi-bundle.ts";
 
 /** Pi 在用户消息与助手消息的首行都加这个标记，这里再给用户消息加一份用作区分 */
 const OSC133_ZONE_START = "\x1b]133;A\x07";
-const USER_TURN_MARK = OSC133_ZONE_START + OSC133_ZONE_START;
 
 /** 跨扩展重新加载共享的状态：包装好的布局根与吸附条组件都留在旧模块里 */
 const STATE_KEY = Symbol.for("pi.ompi.user-rail");
@@ -195,11 +194,16 @@ function patchUserMessage(userClass: UserMessageClass): void {
 	prototype.render = patchedRender;
 }
 
-/** 在一帧的正文里按行首标记找用户消息 */
+/** 行内叠了两份以上 OSC 133 提示符标记的就是用户消息 */
+function isUserTurn(line: string): boolean {
+	return line.split(OSC133_ZONE_START).length > 2;
+}
+
+/** 在一帧的正文里按标记数量找用户消息 */
 function collectTurns(lines: readonly string[]): Turn[] {
 	const turns: Turn[] = [];
 	for (let row = 0; row < lines.length; row++) {
-		if (lines[row]?.startsWith(USER_TURN_MARK) === true) {
+		if (lines[row] !== undefined && isUserTurn(lines[row]!)) {
 			turns.push({ top: row });
 		}
 	}

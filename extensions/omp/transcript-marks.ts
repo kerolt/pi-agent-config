@@ -27,6 +27,9 @@ const MARK_INDENT = 3;
 const USER_GLYPH = "›";
 const ASSISTANT_GLYPH = "•";
 
+/** 行首的 OSC 133 标记，写到屏幕之前会被 Pi 整体剥掉，重铺背景时必须留在最前面 */
+const OSC133_PREFIX = /^(?:\x1b\]133;[ABC](?:\x07|\x1b\\))+/;
+
 type TextBlock = { render: (width: number) => string[] };
 
 type UserClass = {
@@ -87,7 +90,11 @@ function markUserLines(theme: Theme, lines: string[]): string[] {
 	if (index >= 0) {
 		stripped[index] = withUserPrompt(theme, stripped[index]!);
 	}
-	return stripped.map((line) => paintBlock(theme, line, width));
+	return stripped.map((line) => {
+		// OSC 133 标记必须留在行首，否则 Pi 剥不掉，会直接写到终端里
+		const lead = line.match(OSC133_PREFIX)?.[0] ?? "";
+		return lead + paintBlock(theme, line.slice(lead.length), width);
+	});
 }
 
 /** 助手正文块：第一条非空行换成 `•` 标记 */
