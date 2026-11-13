@@ -59,10 +59,6 @@ export default function (pi: ExtensionAPI) {
 				// 第 0 行与自动补全之前的最后一行是上下留白，中间才是输入内容
 				const contentEnd = lines.length - 1 - autocompleteHeight;
 				const paddingX = Math.min(PROMPT_WIDTH, Math.max(0, Math.floor((width - 1) / 2)));
-				if (paddingX === 0) {
-					return lines;
-				}
-
 				const theme = currentTheme();
 				const empty = this.getText().length === 0;
 				const isBashMode = this.getText().trimStart().startsWith("!");
@@ -70,14 +66,14 @@ export default function (pi: ExtensionAPI) {
 
 				for (let index = 1; index < contentEnd; index++) {
 					let line = lines[index] ?? "";
-					if (index === 1) {
+					if (index === 1 && paddingX > 0) {
 						line = replaceIndent(theme, line, paddingX, glyph, "muted");
-						if (empty) {
-							// 光标已经画在提示符后面，占位文字接在它后面
-							line = line.replace(/ +$/, "");
-							const remaining = Math.max(0, width - visibleWidth(line));
-							line += truncateToWidth(` ${theme.fg("dim", PLACEHOLDER)}`, remaining, "");
-						}
+					}
+					if (index === 1 && empty) {
+						// 光标已经画在提示符后面，占位文字接在它后面
+						line = line.replace(/ +$/, "");
+						const remaining = Math.max(0, width - visibleWidth(line));
+						line += truncateToWidth(` ${theme.fg("dim", PLACEHOLDER)}`, remaining, "");
 					}
 					lines[index] = paintBlock(theme, line, width);
 				}
