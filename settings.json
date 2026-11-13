@@ -1,5 +1,5 @@
 {
-  "theme": "system",
+  "theme": "winter-wisp",
   "outputPad": 1,
   "markdown": {
     "codeBlockIndent": "",
@@ -15,7 +15,8 @@
     "npm:@ogulcancelik/pi-ssh-tools",
     "npm:pi-btw",
     "npm:pi-subagents",
-    "npm:pi-web-access"
+    "npm:pi-web-access",
+    "npm:awesome-pi-themes"
   ],
   "quietStartup": true,
   "defaultThinkingLevel": "high",
