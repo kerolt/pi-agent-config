@@ -8,7 +8,8 @@
 
 import { CustomEditor, type ExtensionAPI, type KeybindingsManager } from "@earendil-works/pi-coding-agent";
 import { type EditorTheme, type TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { currentTheme, paintBlock, replaceIndent } from "../lib/codex-style.ts";
+import { paintBlock, replaceIndent, tryCurrentTheme } from "../lib/codex-style.ts";
+import { markDegraded } from "../lib/degrade.ts";
 
 /** 提示符与输入文字的缩进列数 */
 const PROMPT_WIDTH = 3;
@@ -42,13 +43,19 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			protected override renderTopBorder(width: number, hiddenLineCount: number): string {
-				const theme = currentTheme();
+				const theme = tryCurrentTheme();
+				if (theme === undefined) {
+					return super.renderTopBorder(width, hiddenLineCount);
+				}
 				const hint = hiddenLineCount > 0 ? ` ${theme.fg("dim", `↑ ${hiddenLineCount} more`)}` : "";
 				return paintBlock(theme, truncateToWidth(hint, width, ""), width, "editor");
 			}
 
 			protected override renderBottomBorder(width: number, hiddenLineCount: number): string {
-				const theme = currentTheme();
+				const theme = tryCurrentTheme();
+				if (theme === undefined) {
+					return super.renderBottomBorder(width, hiddenLineCount);
+				}
 				const hint = hiddenLineCount > 0 ? ` ${theme.fg("dim", `↓ ${hiddenLineCount} more`)}` : "";
 				return paintBlock(theme, truncateToWidth(hint, width, ""), width, "editor");
 			}
@@ -57,14 +64,18 @@ export default function (pi: ExtensionAPI) {
 				const lines = super.render(width);
 				const autocompleteHeight = (this as unknown as EditorInternals).renderedAutocompleteHeight;
 				if (typeof autocompleteHeight !== "number") {
-					throw new Error("编辑器内部字段 renderedAutocompleteHeight 不存在，输入框背景无法绘制");
+					markDegraded("编辑器缺少 renderedAutocompleteHeight");
+					return lines;
 				}
 
 				// 第 0 行与自动补全之前的最后一行是上下留白，中间才是输入内容
 				const contentEnd = lines.length - 1 - autocompleteHeight;
 				const paddingX = Math.min(PROMPT_WIDTH, Math.max(0, Math.floor((width - 1) / 2)));
 
-				const theme = currentTheme();
+				const theme = tryCurrentTheme();
+				if (theme === undefined) {
+					return lines;
+				}
 				const empty = this.getText().length === 0;
 				const isBashMode = this.getText().trimStart().startsWith("!");
 				const glyph = isBashMode ? BASH_PROMPT_GLYPH : PROMPT_GLYPH;

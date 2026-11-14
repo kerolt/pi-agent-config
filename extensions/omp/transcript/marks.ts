@@ -11,7 +11,8 @@
 
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
-import { currentTheme, paintBlock, replaceIndent } from "../lib/codex-style.ts";
+import { paintBlock, replaceIndent, tryCurrentTheme } from "../lib/codex-style.ts";
+import { markDegraded } from "../lib/degrade.ts";
 import { loadBundle } from "../lib/pi-bundle.ts";
 
 /** 打补丁的标记，避免重复包装同一批方法 */
@@ -112,9 +113,13 @@ function markTextBlock(markdown: TextBlock): void {
 	const originalRender = markdown.render;
 	const patchedRender = function (this: TextBlock, width: number): string[] {
 		const lines = originalRender.call(this, width);
+		const theme = tryCurrentTheme();
+		if (theme === undefined) {
+			return lines;
+		}
 		const index = firstVisibleLine(lines);
 		if (index >= 0) {
-			lines[index] = replaceIndent(currentTheme(), lines[index]!, MARK_INDENT, ASSISTANT_GLYPH, "muted");
+			lines[index] = replaceIndent(theme, lines[index]!, MARK_INDENT, ASSISTANT_GLYPH, "muted");
 		}
 
 		return lines;
@@ -134,11 +139,15 @@ function patchUserMessage(userClass: UserClass): void {
 
 	const originalRender = prototype.render;
 	const patchedRender = function (this: UserClass["prototype"], width: number): string[] {
+		const theme = tryCurrentTheme();
+		if (theme === undefined) {
+			return originalRender.call(this, width);
+		}
 		if (this.outputPad !== MARK_INDENT) {
 			this.setOutputPad(MARK_INDENT);
 		}
 
-		return markUserLines(currentTheme(), originalRender.call(this, width));
+		return markUserLines(theme, originalRender.call(this, width));
 	};
 
 	prototype.render = patchedRender;
@@ -156,6 +165,13 @@ function patchAssistantMessage(assistantClass: AssistantClass): void {
 		message: unknown,
 		isStreaming?: boolean,
 	): void {
+		// 先确认字段，避免创建空数组掩盖 Pi 已经更换内部结构的情况。
+		if (!Array.isArray(this.markdownSlots)) {
+			originalUpdateContent.call(this, message, isStreaming);
+			markDegraded("助手消息组件缺少 markdownSlots");
+			return;
+		}
+
 		// 改缩进必须丢掉旧的 Markdown 实例，构造时用的 paddingX 已经固定
 		if (this.outputPad !== MARK_INDENT) {
 			this.outputPad = MARK_INDENT;
@@ -165,7 +181,8 @@ function patchAssistantMessage(assistantClass: AssistantClass): void {
 		originalUpdateContent.call(this, message, isStreaming);
 		const slots = this.markdownSlots;
 		if (!Array.isArray(slots)) {
-			throw new Error("助手消息组件里没有 markdownSlots，正文标记无法生效");
+			markDegraded("助手消息组件缺少 markdownSlots");
+			return;
 		}
 
 		// updateContent 可能复用 Markdown，只给正文实例安装一次标记处理。
@@ -183,13 +200,26 @@ function patchAssistantMessage(assistantClass: AssistantClass): void {
 export default function (pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, _ctx) => {
 		const bundle = await loadBundle();
-		const userClass = bundle.UserMessageComponent as UserClass | undefined;
-		const assistantClass = bundle.AssistantMessageComponent as AssistantClass | undefined;
-		if (userClass === undefined || assistantClass === undefined) {
-			throw new Error("打包入口里缺少 UserMessageComponent 或 AssistantMessageComponent");
+		if (bundle === undefined) {
+			return;
 		}
 
-		patchUserMessage(userClass);
-		patchAssistantMessage(assistantClass);
+		const userClass = bundle.UserMessageComponent as UserClass | undefined;
+		const assistantClass = bundle.AssistantMessageComponent as AssistantClass | undefined;
+		if (typeof userClass !== "function" || userClass.prototype === undefined ||
+			typeof userClass.prototype.render !== "function" || typeof userClass.prototype.setOutputPad !== "function") {
+			markDegraded("用户消息组件缺少 render/setOutputPad");
+		}
+		else {
+			patchUserMessage(userClass);
+		}
+
+		if (typeof assistantClass !== "function" || assistantClass.prototype === undefined ||
+			typeof assistantClass.prototype.updateContent !== "function") {
+			markDegraded("助手消息组件缺少 updateContent");
+		}
+		else {
+			patchAssistantMessage(assistantClass);
+		}
 	});
 }

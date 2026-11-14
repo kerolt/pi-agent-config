@@ -1,3 +1,4 @@
+import { flushDegraded } from "./lib/degrade.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import inputEditor from "./editor/input.ts";
 import minimalFooter from "./footer/minimal.ts";
@@ -12,4 +13,8 @@ export default function (pi: ExtensionAPI) {
   transcriptMarks(pi);
   toolOutputLimit(pi);
   stickyUserMessage(pi);
+
+  pi.on("session_start", (_event, ctx) => {
+    flushDegraded(ctx);
+  });
 }

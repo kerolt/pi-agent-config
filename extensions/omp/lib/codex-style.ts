@@ -8,6 +8,7 @@
 
 import { backgroundAnsi, parseColor, visibleWidth } from "@earendil-works/pi-tui";
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
+import { markDegraded } from "./degrade.ts";
 
 /** 块状背景的两种用途：用户消息（含吸附条）与输入框 */
 export type CodexSurface = "message" | "editor";
@@ -37,6 +38,17 @@ export function currentTheme(): Theme {
 	}
 
 	return theme;
+}
+
+/** 渲染可能早于主题初始化，保留原生展示行可避免重绘持续报错。 */
+export function tryCurrentTheme(): Theme | undefined {
+	try {
+		return currentTheme();
+	}
+	catch (error) {
+		markDegraded(`无法取得当前主题：${String(error)}`);
+		return undefined;
+	}
 }
 
 /** 按主题明暗与块的用途取色值 */

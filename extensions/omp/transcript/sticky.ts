@@ -15,7 +15,8 @@ import {
 	type TuiMouseEventResult,
 } from "@earendil-works/pi-tui";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { currentTheme, paintBlock } from "../lib/codex-style.ts";
+import { paintBlock, tryCurrentTheme } from "../lib/codex-style.ts";
+import { markDegraded } from "../lib/degrade.ts";
 import {
 	loadTranscriptLayout,
 	type TranscriptLayoutFrame,
@@ -152,7 +153,11 @@ function createSticky(state: StickyState): Component {
 				return [];
 			}
 
-			const theme = currentTheme();
+			const theme = tryCurrentTheme();
+			if (theme === undefined) {
+				state.stickyTop = undefined;
+				return [];
+			}
 			let text = theme.fg("userMessageText", target.preview);
 			if (target.hasMore || visibleWidth(text) > width) {
 				text = truncateToWidth(text, Math.max(0, width - 1), "") + theme.fg("userMessageText", "…");
@@ -206,11 +211,12 @@ function entryOptions(entry: StackEntryLike): Omit<StackEntryLike, "component"> 
 	};
 }
 
-function install(state: StickyState, tui: StickyHost, root: StackLike): void {
+function install(state: StickyState, tui: StickyHost, root: StackLike): boolean {
 	const entries = [...root.entries];
 	const index = entries.findIndex((entry) => transcriptInside(entry.component) !== undefined);
 	if (index < 0) {
-		throw new Error("布局根中没有 primary transcript，无法安装用户消息吸附条");
+		markDegraded("布局根中没有 primary transcript");
+		return false;
 	}
 
 	const transcript = transcriptInside(entries[index]!.component)!;
@@ -245,6 +251,7 @@ function install(state: StickyState, tui: StickyHost, root: StackLike): void {
 	state.cache = undefined;
 
 	tui.requestRender();
+	return true;
 }
 
 function currentTranscript(root: StackLike, sticky: Component | undefined): TranscriptScrollView | undefined {
@@ -279,7 +286,12 @@ function ensureInstalled(state: StickyState, tui: TUI): void {
 		return;
 	}
 	if (!Array.isArray(root.entries)) {
-		throw new Error("布局根没有 Stack entries，无法安装用户消息吸附条");
+		markDegraded("布局根没有 Stack entries");
+		return;
+	}
+	if (typeof root.clear !== "function" || typeof root.addChild !== "function") {
+		markDegraded("布局根缺少 clear/addChild");
+		return;
 	}
 
 	state.tui = host;
@@ -309,6 +321,9 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		state.readRanges = await loadTranscriptLayout();
+		if (state.readRanges === undefined) {
+			return;
+		}
 
 		ctx.ui.setWidget(
 			WIDGET_KEY,

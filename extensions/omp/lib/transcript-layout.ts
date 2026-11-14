@@ -3,6 +3,7 @@
 import type { UserMessageComponent } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
+import { markDegraded } from "./degrade.ts";
 import { loadBundle } from "./pi-bundle.ts";
 
 export type TranscriptScrollView = Component & {
@@ -52,16 +53,25 @@ function findScrollBox(box: LayoutBox, transcript: TranscriptScrollView): Layout
 }
 
 /** 组件必须来自运行中的 bundle，原生 Container 的 render 按 children 顺序连接展示行。 */
-export async function loadTranscriptLayout(): Promise<TranscriptLayoutReader> {
+export async function loadTranscriptLayout(): Promise<TranscriptLayoutReader | undefined> {
 	const bundle = await loadBundle();
-	const userClass = bundle.UserMessageComponent as UserMessageClass | undefined;
-	if (typeof userClass !== "function") {
-		throw new Error("打包入口里缺少 UserMessageComponent");
+	if (bundle === undefined) {
+		markDegraded("找不到运行中的 Pi 打包产物");
+		return undefined;
 	}
 
-	const containerPrototype = Object.getPrototypeOf(userClass.prototype) as NativeContainer;
-	if (!Object.hasOwn(containerPrototype, "addChild") || !Object.hasOwn(containerPrototype, "render")) {
-		throw new Error("用户消息组件的父类没有原生 Container Interface");
+	const userClass = bundle.UserMessageComponent as UserMessageClass | undefined;
+	if (typeof userClass !== "function" || userClass.prototype === undefined) {
+		markDegraded("打包产物缺少 UserMessageComponent");
+		return undefined;
+	}
+
+	const containerPrototype = Object.getPrototypeOf(userClass.prototype) as NativeContainer | null;
+	if (containerPrototype === null || !Object.hasOwn(containerPrototype, "addChild") ||
+		!Object.hasOwn(containerPrototype, "render") || typeof containerPrototype.render !== "function" ||
+		typeof (containerPrototype as NativeContainer & { addChild?: unknown }).addChild !== "function") {
+		markDegraded("用户消息组件的父类缺少 addChild/render");
+		return undefined;
 	}
 	const containerRender = containerPrototype.render;
 
@@ -73,7 +83,8 @@ export async function loadTranscriptLayout(): Promise<TranscriptLayoutReader> {
 
 		const documentBox = scrollBox.children[0];
 		if (documentBox === undefined) {
-			throw new Error("transcript 布局中缺少内容组件");
+			markDegraded("transcript 布局中缺少内容组件");
+			return undefined;
 		}
 
 		// 使用滚动视口分配的内容宽度，让消息换行与位置计算保持一致。
