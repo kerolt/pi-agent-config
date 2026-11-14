@@ -38,7 +38,7 @@
   "collapseChangelog": true,
   "defaultProjectTrust": "ask",
   "deviceId": "9b738b18-1183-4dcb-be71-defb9b972afb",
-  "fullscreenWheelScrollLines": "auto",
+  "fullscreenWheelScrollLines": 1,
   "fullscreenExitOutput": "resume-hint",
   "extensionChangelogVersions": {
     "{\"source\":\"npm:@agnishc/edb-agent-steer\",\"scope\":\"user\"}": "0.21.1",
@@ -51,5 +51,5 @@
   },
   "cacheWarming": "idle",
   "doubleEscapeAction": "tree",
-  "fullscreenCopyOnSelect": false
+  "fullscreenCopyOnSelect": true
 }
