@@ -165,17 +165,12 @@ function patchAssistantMessage(assistantClass: AssistantClass): void {
 		message: unknown,
 		isStreaming?: boolean,
 	): void {
-		// 先确认字段，避免创建空数组掩盖 Pi 已经更换内部结构的情况。
-		if (!Array.isArray(this.markdownSlots)) {
-			originalUpdateContent.call(this, message, isStreaming);
-			markDegraded("助手消息组件缺少 markdownSlots");
-			return;
-		}
-
 		// 改缩进必须丢掉旧的 Markdown 实例，构造时用的 paddingX 已经固定
 		if (this.outputPad !== MARK_INDENT) {
 			this.outputPad = MARK_INDENT;
-			this.markdownSlots = [];
+			if (Array.isArray(this.markdownSlots)) {
+				this.markdownSlots = [];
+			}
 		}
 
 		originalUpdateContent.call(this, message, isStreaming);
