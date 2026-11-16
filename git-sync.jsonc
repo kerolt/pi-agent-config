@@ -1,6 +1,7 @@
 {
   "autoSyncIntervalMinutes": 0,
   "autoSyncOnSessionStart": false,
+  "syncOnSessionShutdown": false,
   "includeHostname": true,
   "warnOnPublicRemote": true,
   "machineLocalSettings": [

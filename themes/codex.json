@@ -10,8 +10,8 @@
 		"blueDim": "okhsl(205 40% 72%)",
 		"red": "okhsl(18 60% 68%)",
 		"amber": "okhsl(72 58% 68%)",
-		"surface": "okhsl(240 5% 25%)",
-		"surfaceHigh": "okhsl(240 4% 31%)"
+		"surface": "#4b4d54",
+		"surfaceHigh": "#41454c"
 	},
 	"colors": {
 		"accent": "blue",

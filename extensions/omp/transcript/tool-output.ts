@@ -84,7 +84,16 @@ function clearSpinnerTargets(): void {
 }
 
 function isBlank(line: string | undefined): boolean {
-	return line === undefined || stripTerminalSequences(line).trim() === "";
+	if (line === undefined) {
+		return true;
+	}
+
+	const trimmed = line.trim();
+	if (trimmed === "") {
+		return true;
+	}
+
+	return trimmed.charCodeAt(0) === 0x1b && stripTerminalSequences(line).trim() === "";
 }
 
 function statusIcon(context: CallContext, theme: Theme): string {
@@ -119,6 +128,16 @@ class CallLine implements Component {
 	private prefixWidth = 0;
 	private innerWidth = 0;
 	private innerRows = 0;
+	private cache: {
+		width: number;
+		content: string | Component;
+		icon: string;
+		expanded: boolean;
+		prefixWidth: number;
+		innerWidth: number;
+		innerRows: number;
+		lines: string[];
+	} | undefined;
 
 	constructor(private readonly keyHint: KeyHint) {}
 
@@ -126,14 +145,25 @@ class CallLine implements Component {
 		this.content = content;
 		this.icon = statusIcon(context, theme);
 		this.expanded = context.expanded;
+		this.cache = undefined;
 	}
 
 	render(width: number): string[] {
-		this.innerRows = 0;
 		if (width <= 0) {
+			this.innerRows = 0;
 			return [];
 		}
 
+		const cached = this.cache;
+		if (cached !== undefined && cached.width === width && cached.content === this.content &&
+			cached.icon === this.icon && cached.expanded === this.expanded) {
+			this.prefixWidth = cached.prefixWidth;
+			this.innerWidth = cached.innerWidth;
+			this.innerRows = cached.innerRows;
+			return cached.lines;
+		}
+
+		this.innerRows = 0;
 		const prefix = truncateToWidth(`${CARD_INDENT}${this.icon} `, width, "");
 		this.prefixWidth = visibleWidth(prefix);
 		this.innerWidth = Math.max(1, width - this.prefixWidth);
@@ -163,10 +193,21 @@ class CallLine implements Component {
 			rendered.push(truncateToWidth(overflowHint(lines.length - capacity, currentTheme(), this.keyHint), width, "..."));
 		}
 
+		this.cache = {
+			width,
+			content: this.content,
+			icon: this.icon,
+			expanded: this.expanded,
+			prefixWidth: this.prefixWidth,
+			innerWidth: this.innerWidth,
+			innerRows: this.innerRows,
+			lines: rendered,
+		};
 		return rendered;
 	}
 
 	invalidate(): void {
+		this.cache = undefined;
 		if (typeof this.content !== "string") {
 			this.content.invalidate();
 		}
@@ -209,6 +250,83 @@ function extractOutput(content: ToolContent): string {
 
 	outputCache.set(content, output);
 	return output;
+}
+
+type BodyPreview = {
+	rows: string[];
+	leadingBlank: number;
+	hidden: number;
+};
+
+type PreviewSource = Component & {
+	renderPreview(width: number, capacity: number): BodyPreview;
+};
+
+function previewSource(component: Component): PreviewSource | undefined {
+	const candidate = component as Partial<PreviewSource>;
+	return typeof candidate.renderPreview === "function" ? candidate as PreviewSource : undefined;
+}
+
+/**
+ * 纯文本结果只按需要换行。
+ *
+ * 展开路径委托 Text，保留原有颜色与换行；折叠路径逐条输入行换行，只保留预览所需的前几行，
+ * 其余行只统计非空数量，并按宽度缓存统计结果。
+ */
+class ResultText implements Component {
+	private readonly full: Text;
+	private measured: { width: number; preview: BodyPreview } | undefined;
+
+	constructor(private readonly plain: string, full: string) {
+		this.full = new Text(full, 0, 0);
+	}
+
+	render(width: number): string[] {
+		return this.full.render(width);
+	}
+
+	renderPreview(width: number, capacity: number): BodyPreview {
+		if (this.measured?.width === width) {
+			return this.measured.preview;
+		}
+
+		const rows: string[] = [];
+		let leadingBlank = 0;
+		let started = false;
+		let hidden = 0;
+
+		for (const source of this.plain.replace(/\t/g, "   ").split(/\r\n|\r|\n/)) {
+			const wrapped = source === "" || visibleWidth(source) <= width
+				? [source]
+				: wrapTextWithAnsi(source, width);
+			for (const row of wrapped) {
+				const blank = row.trim() === "";
+				if (!started) {
+					if (blank) {
+						leadingBlank++;
+						continue;
+					}
+					started = true;
+				}
+
+				if (rows.length < capacity) {
+					rows.push(row);
+				}
+				else if (!blank) {
+					hidden++;
+				}
+			}
+		}
+
+		const preview = { rows, leadingBlank, hidden };
+		this.measured = { width, preview };
+		return preview;
+	}
+
+	invalidate(): void {
+		this.full.invalidate();
+		this.measured = undefined;
+	}
 }
 
 function displayArg(value: unknown): string {
@@ -301,25 +419,34 @@ function genericCallText(toolName: string, args: unknown, theme: Theme): string 
 
 function genericResult(result: AgentToolResult<unknown>, theme: Theme, color: ThemeColor): Component {
 	const text = extractOutput(result.content);
-	return text ? new Text(theme.fg(color, text), 0, 0) : new Container();
+	return text ? new ResultText(text, theme.fg(color, text)) : new Container();
 }
 
 /** shell 的正文由结果数据生成，截断信息与完整输出路径保留。 */
 function shellResult(result: AgentToolResult<unknown>, theme: Theme, context: CallContext): Component {
 	const text = extractOutput(result.content);
 	const details = result.details as BashToolDetails | undefined;
-	const lines = text ? [theme.fg(context.isError ? "error" : "toolOutput", text)] : [];
+	const plain: string[] = [];
+	const styled: string[] = [];
+	if (text) {
+		plain.push(text);
+		styled.push(theme.fg(context.isError ? "error" : "toolOutput", text));
+	}
 
 	if (details?.fullOutputPath && !text.includes(details.fullOutputPath)) {
-		lines.push(theme.fg("warning", `[Full output: ${details.fullOutputPath}]`));
+		const line = `[Full output: ${details.fullOutputPath}]`;
+		plain.push(line);
+		styled.push(theme.fg("warning", line));
 	}
 
 	if (context.isPartial && details?.truncation?.truncated) {
 		const truncation = details.truncation;
-		lines.push(theme.fg("warning", `[Truncated: showing ${truncation.outputLines} of ${truncation.totalLines} lines]`));
+		const line = `[Truncated: showing ${truncation.outputLines} of ${truncation.totalLines} lines]`;
+		plain.push(line);
+		styled.push(theme.fg("warning", line));
 	}
 
-	return new Text(lines.join("\n"), 0, 0);
+	return new ResultText(plain.join("\n"), styled.join("\n"));
 }
 
 /** 结果正文的预览与缩进由外层处理，鼠标坐标转换到原组件。 */
@@ -327,6 +454,14 @@ class BranchBody implements Component {
 	private contentStart = 0;
 	private contentRows = 0;
 	private contentWidth = 0;
+	private cache: {
+		width: number;
+		expanded: boolean;
+		theme: Theme;
+		lines: string[];
+		contentStart: number;
+		contentRows: number;
+	} | undefined;
 
 	constructor(
 		private readonly inner: Component,
@@ -335,36 +470,79 @@ class BranchBody implements Component {
 	) {}
 
 	render(width: number): string[] {
-		this.contentStart = 0;
-		this.contentRows = 0;
 		if (width <= 0) {
+			this.contentStart = 0;
+			this.contentRows = 0;
 			return [];
 		}
 
 		const theme = currentTheme();
 		this.contentWidth = Math.max(1, width - BRANCH_TAIL.length);
+		const cached = this.cache;
+		if (cached !== undefined && cached.width === width &&
+			cached.expanded === this.expanded && cached.theme === theme) {
+			this.contentStart = cached.contentStart;
+			this.contentRows = cached.contentRows;
+			return cached.lines;
+		}
+
+		const result = this.expanded
+			? this.renderExpanded(width, theme)
+			: this.renderCollapsed(width, theme);
+		this.contentStart = result.contentStart;
+		this.contentRows = result.contentRows;
+		this.cache = { width, expanded: this.expanded, theme, ...result };
+		return result.lines;
+	}
+
+	private renderCollapsed(width: number, theme: Theme): { lines: string[]; contentStart: number; contentRows: number } {
+		const preview = previewSource(this.inner)?.renderPreview(this.contentWidth, PREVIEW_LINES);
+		if (preview !== undefined) {
+			const lines = preview.rows.map((line, index) => {
+				const prefix = theme.fg("dim", index === 0 ? BRANCH_LEAD : BRANCH_TAIL);
+				return truncateToWidth(prefix + theme.fg("dim", line), width, "");
+			});
+			if (preview.hidden > 0) {
+				const hint = hiddenHint(preview.hidden, theme, this.keyHint);
+				lines.push(truncateToWidth(theme.fg("dim", BRANCH_TAIL) + hint, width, "..."));
+			}
+
+			return { lines, contentStart: preview.leadingBlank, contentRows: preview.rows.length };
+		}
+
+		return this.renderMeasured(width, theme, PREVIEW_LINES, true);
+	}
+
+	private renderExpanded(width: number, theme: Theme): { lines: string[]; contentStart: number; contentRows: number } {
+		return this.renderMeasured(width, theme, MAX_EXPANDED_LINES, false);
+	}
+
+	/** 通用组件无法只渲染局部时按宽度缓存首次测量结果。 */
+	private renderMeasured(
+		width: number,
+		theme: Theme,
+		capacity: number,
+		dim: boolean,
+	): { lines: string[]; contentStart: number; contentRows: number } {
 		const source = this.inner.render(this.contentWidth);
 
 		// 首尾空行不占预览额度，保留原数组下标用于鼠标坐标转换。
+		let contentStart = 0;
 		let end = source.length;
-		while (this.contentStart < end && isBlank(source[this.contentStart])) this.contentStart++;
-		while (end > this.contentStart && isBlank(source[end - 1])) end--;
+		while (contentStart < end && isBlank(source[contentStart])) contentStart++;
+		while (end > contentStart && isBlank(source[end - 1])) end--;
 
-		const capacity = this.expanded ? MAX_EXPANDED_LINES : PREVIEW_LINES;
-		const shownEnd = Math.min(end, this.contentStart + capacity);
-		this.contentRows = shownEnd - this.contentStart;
-
-		const rendered: string[] = [];
-		for (let row = this.contentStart; row < shownEnd; row++) {
-			const line = source[row]!;
-			const prefix = theme.fg("dim", row === this.contentStart ? BRANCH_LEAD : BRANCH_TAIL);
-			const body = this.expanded ? line : theme.fg("dim", stripTerminalSequences(line));
-			rendered.push(truncateToWidth(prefix + body, width, ""));
+		const shownEnd = Math.min(end, contentStart + capacity);
+		const lines: string[] = [];
+		for (let row = contentStart; row < shownEnd; row++) {
+			const prefix = theme.fg("dim", row === contentStart ? BRANCH_LEAD : BRANCH_TAIL);
+			const body = dim ? theme.fg("dim", stripTerminalSequences(source[row]!)) : source[row]!;
+			lines.push(truncateToWidth(prefix + body, width, ""));
 		}
 
 		// 折叠提示只统计非空隐藏行，展开提示统计全部剩余行。
 		let hidden = end - shownEnd;
-		if (!this.expanded) {
+		if (dim) {
 			hidden = 0;
 			for (let row = shownEnd; row < end; row++) {
 				if (!isBlank(source[row])) hidden++;
@@ -372,16 +550,17 @@ class BranchBody implements Component {
 		}
 
 		if (hidden > 0) {
-			const hint = this.expanded
-				? overflowHint(hidden, theme, this.keyHint)
-				: hiddenHint(hidden, theme, this.keyHint);
-			rendered.push(truncateToWidth(theme.fg("dim", BRANCH_TAIL) + hint, width, "..."));
+			const hint = dim
+				? hiddenHint(hidden, theme, this.keyHint)
+				: overflowHint(hidden, theme, this.keyHint);
+			lines.push(truncateToWidth(theme.fg("dim", BRANCH_TAIL) + hint, width, "..."));
 		}
 
-		return rendered;
+		return { lines, contentStart, contentRows: shownEnd - contentStart };
 	}
 
 	invalidate(): void {
+		this.cache = undefined;
 		this.inner.invalidate();
 	}
 

@@ -1,24 +1,19 @@
 /**
- * codex 风格共用的背景绘制与行首标记。
+ * 输入框的背景绘制与共用取色。
  *
- * codex 的用户消息与输入框都铺一块中性灰背景，主题里的 userMessageBg 带蓝调，这里换成
- * 固定色值，并按主题明暗选择深色或浅色。用户消息与吸附条用亮一档的颜色，输入框稍暗，
- * 与 codex 的层次一致。所有绘制都补满整行，换行处重新打开背景色，避免主题的复位序列把背景清掉。
+ * 用户消息的底色由主题的 userMessageBg 决定，这里只负责输入框：整块中性灰，
+ * 不画上下横线。绘制补满整行，遇到复位序列重新打开背景色，避免主题的复位序列
+ * 把底色清掉。
  */
 
 import { backgroundAnsi, parseColor, visibleWidth } from "@earendil-works/pi-tui";
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 import { markDegraded } from "./degrade.ts";
 
-/** 块状背景的两种用途：用户消息（含吸附条）与输入框 */
-export type CodexSurface = "message" | "editor";
-
-/** 深色主题下块状背景的色值，与 codex 的 One Dark 配色一致 */
-const DARK_MESSAGE = "#4b4d54";
+/** 深色主题下输入框的背景色，与 codex 的 One Dark 配色一致 */
 const DARK_EDITOR = "#41454c";
 
-/** 浅色主题下块状背景的色值，用户消息比输入框深一档 */
-const LIGHT_MESSAGE = "#e2e2e2";
+/** 浅色主题下输入框的背景色 */
 const LIGHT_EDITOR = "#ececec";
 
 /** Pi 把当前主题放在这个全局符号下 */
@@ -51,34 +46,14 @@ export function tryCurrentTheme(): Theme | undefined {
 	}
 }
 
-/** 按主题明暗与块的用途取色值 */
-function surfaceColor(theme: Theme, surface: CodexSurface): string {
-	if (theme.appearance === "light") {
-		return surface === "editor" ? LIGHT_EDITOR : LIGHT_MESSAGE;
-	}
-
-	return surface === "editor" ? DARK_EDITOR : DARK_MESSAGE;
+/** 输入框在深色与浅色主题下的背景色 */
+function editorColor(theme: Theme): string {
+	return theme.appearance === "light" ? LIGHT_EDITOR : DARK_EDITOR;
 }
 
-/** codex 的块背景色，跟随主题明暗与块的用途 */
-export function codexSurfaceAnsi(theme: Theme, surface: CodexSurface = "message"): string {
-	const color = parseColor(surfaceColor(theme, surface));
-	return backgroundAnsi(color, theme.getColorMode());
-}
-
-/** 用户消息与吸附条的背景色 */
-export function codexBlockAnsi(theme: Theme): string {
-	return codexSurfaceAnsi(theme, "message");
-}
-
-/** 把一行铺成整行宽度的 codex 背景块 */
-export function paintBlock(
-	theme: Theme,
-	text: string,
-	width: number,
-	surface: CodexSurface = "message",
-): string {
-	const bg = codexSurfaceAnsi(theme, surface);
+/** 把一行铺成整行宽度的输入框背景 */
+export function paintBlock(theme: Theme, text: string, width: number): string {
+	const bg = backgroundAnsi(parseColor(editorColor(theme)), theme.getColorMode());
 	const padding = " ".repeat(Math.max(0, width - visibleWidth(text)));
 
 	return bg + (text + padding).split(SGR_RESET).join(SGR_RESET + bg) + BG_RESET;

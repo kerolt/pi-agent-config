@@ -48,7 +48,7 @@ export default function (pi: ExtensionAPI) {
 					return super.renderTopBorder(width, hiddenLineCount);
 				}
 				const hint = hiddenLineCount > 0 ? ` ${theme.fg("dim", `↑ ${hiddenLineCount} more`)}` : "";
-				return paintBlock(theme, truncateToWidth(hint, width, ""), width, "editor");
+				return paintBlock(theme, truncateToWidth(hint, width, ""), width);
 			}
 
 			protected override renderBottomBorder(width: number, hiddenLineCount: number): string {
@@ -57,7 +57,7 @@ export default function (pi: ExtensionAPI) {
 					return super.renderBottomBorder(width, hiddenLineCount);
 				}
 				const hint = hiddenLineCount > 0 ? ` ${theme.fg("dim", `↓ ${hiddenLineCount} more`)}` : "";
-				return paintBlock(theme, truncateToWidth(hint, width, ""), width, "editor");
+				return paintBlock(theme, truncateToWidth(hint, width, ""), width);
 			}
 
 			render(width: number): string[] {
@@ -93,7 +93,7 @@ export default function (pi: ExtensionAPI) {
 						line += truncateToWidth(` ${theme.fg("muted", PLACEHOLDER)}`, remaining, "");
 					}
 
-					lines[index] = paintBlock(theme, line, width, "editor");
+					lines[index] = paintBlock(theme, line, width);
 				}
 
 				return lines;
