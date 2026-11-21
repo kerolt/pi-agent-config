@@ -36,6 +36,9 @@
 !pi-one-ui.json
 !pi-one-ui.json/
 !pi-one-ui.json/**
+!xsettings.toml
+!xsettings.toml/
+!xsettings.toml/**
 # hard denylist — re-ignored even inside allowed dirs
 **/logs/
 auth*

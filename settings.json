@@ -3,7 +3,7 @@
   "outputPad": 1,
   "markdown": {
     "codeBlockIndent": "",
-    "mermaid": "streaming"
+    "mermaid": "final"
   },
   "skills": [],
   "packages": [
@@ -13,10 +13,11 @@
     "npm:@ff-labs/pi-fff",
     "npm:@juicesharp/rpiv-ask-user-question",
     "npm:@ogulcancelik/pi-ssh-tools",
-    "npm:pi-btw",
     "npm:pi-subagents",
     "npm:pi-web-access",
-    "npm:awesome-pi-themes"
+    "npm:@luan.sh/pi-panels",
+    "npm:@luan.sh/pi-side",
+    "npm:@luan.sh/pi-xsettings"
   ],
   "quietStartup": true,
   "defaultThinkingLevel": "high",
@@ -51,5 +52,8 @@
   },
   "cacheWarming": "idle",
   "doubleEscapeAction": "tree",
-  "fullscreenCopyOnSelect": true
+  "fullscreenCopyOnSelect": true,
+  "codemode": {
+    "mode": "on"
+  }
 }

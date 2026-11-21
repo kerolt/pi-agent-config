@@ -1,0 +1,33 @@
+[appearance]
+pi.theme = "codex"
+pi.quietStartup = true
+pi.hideThinkingBlock = true
+pi.showCacheMissNotices = true
+pi.collapseChangelog = true
+pi.outputPad = 1
+pi.tuiMode = "fullscreen"
+pi.fullscreenExitOutput = "resume-hint"
+pi.fullscreenScrollbar = "hidden"
+pi.markdown.codeBlockIndent = ""
+pi.markdown.mermaid = "final"
+pi.terminal.showImages = false
+pi-libtui.powerline = false
+pi-libtui.toolIndicator = "inherit"
+pi-libtui.iconPack = "nerd-fonts"
+pi-libtui.powerlineButtons = false
+pi-libtui.softCursor = false
+pi-libtui.workingTextEffect = "inherit"
+pi-libtui.textEffectScope = "message"
+pi-libtui.userMessageBubbles = false
+pi-libtui.workingIndicator = "braille-pulse"
+
+[behavior]
+pi.cacheWarming = "idle"
+pi.compaction.enabled = true
+pi.retry.enabled = true
+
+[interaction]
+pi.steeringMode = "one-at-a-time"
+
+[tools]
+pi.codemode.mode = "on"
