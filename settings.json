@@ -8,7 +8,6 @@
   "skills": [],
   "packages": [
     "git:github.com/kerolt/pi-config-sync",
-    "git:github.com/kerolt/pi-ssh-image-clipboard",
     "npm:@agnishc/edb-agent-steer",
     "npm:@ff-labs/pi-fff",
     "npm:@juicesharp/rpiv-ask-user-question",
