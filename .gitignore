@@ -33,12 +33,12 @@
 !skills
 !skills/
 !skills/**
-!pi-one-ui.json
-!pi-one-ui.json/
-!pi-one-ui.json/**
 !xsettings.toml
 !xsettings.toml/
 !xsettings.toml/**
+!README.md
+!README.md/
+!README.md/**
 # hard denylist — re-ignored even inside allowed dirs
 **/logs/
 auth*

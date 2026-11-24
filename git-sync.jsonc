@@ -10,7 +10,7 @@
     "defaultModel"
   ],
   "extraPaths": [
-    "pi-one-ui.json",
-    "xsettings.toml"
+    "xsettings.toml",
+    "README.md"
   ]
 }
