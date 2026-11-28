@@ -34,7 +34,6 @@
     "opencode-go/deepseek-v4.1-flash": "high",
     "openai-codex/gpt-6-astra": "max"
   },
-  "showCacheMissNotices": true,
   "collapseChangelog": true,
   "defaultProjectTrust": "ask",
   "deviceId": "9b738b18-1183-4dcb-be71-defb9b972afb",
@@ -42,7 +41,7 @@
   "fullscreenExitOutput": "resume-hint",
   "extensionChangelogVersions": {
     "{\"source\":\"npm:@agnishc/edb-agent-steer\",\"scope\":\"user\"}": "0.21.1",
-    "{\"source\":\"npm:pi-subagents\",\"scope\":\"user\"}": "0.88.1",
+    "{\"source\":\"npm:pi-subagents\",\"scope\":\"user\"}": "0.90.0",
     "{\"source\":\"npm:pi-web-access\",\"scope\":\"user\"}": "0.48.0",
     "{\"source\":\"npm:awesome-pi-themes\",\"scope\":\"user\"}": "1.2.19"
   },
@@ -54,5 +53,11 @@
   "fullscreenCopyOnSelect": true,
   "codemode": {
     "mode": "on"
+  },
+  "notices": {
+    "cacheMisses": true,
+    "cacheWarming": true,
+    "compactionCosts": true,
+    "reasoningDrops": true
   }
 }

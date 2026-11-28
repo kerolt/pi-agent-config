@@ -2,7 +2,6 @@
 pi.theme = "codex"
 pi.quietStartup = true
 pi.hideThinkingBlock = true
-pi.showCacheMissNotices = true
 pi.collapseChangelog = true
 pi.outputPad = 1
 pi.tuiMode = "fullscreen"
